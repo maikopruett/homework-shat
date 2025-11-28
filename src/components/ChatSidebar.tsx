@@ -12,6 +12,7 @@ interface ChatSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   onSendMessage: (text: string) => void;
+  onStopGeneration: () => void;
   onCreateDocument: (title?: string) => void;
   onSwitchDocument: (docId: string) => void;
 }
@@ -26,6 +27,7 @@ export default function ChatSidebar({
   isOpen,
   onClose,
   onSendMessage,
+  onStopGeneration,
   onCreateDocument,
   onSwitchDocument,
 }: ChatSidebarProps) {
@@ -266,15 +268,27 @@ export default function ChatSidebar({
             disabled={isLoading}
             className="flex-1 border border-gray-300 rounded-2xl px-4 py-2.5 text-sm font-[inherit] resize-none outline-none max-h-[120px] leading-snug transition-colors text-black bg-white focus:border-blue-600 placeholder:text-gray-400"
           />
-          <button 
-            type="submit" 
-            disabled={!chatInput.trim() || isLoading}
-            className="w-10 h-10 border-none bg-blue-600 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-            </svg>
-          </button>
+          {isLoading ? (
+            <button 
+              type="button"
+              onClick={onStopGeneration}
+              className="w-10 h-10 border-none bg-red-500 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-red-600"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+            </button>
+          ) : (
+            <button 
+              type="submit" 
+              disabled={!chatInput.trim()}
+              className="w-10 h-10 border-none bg-blue-600 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+              </svg>
+            </button>
+          )}
         </form>
     </div>
   );

@@ -593,6 +593,7 @@ export function useDocuments() {
   const parseContextRef = useRef<ParseContext>(createParseContext());
   const editorRefStore = useRef<TiptapEditorHandle | null>(null);
   const streamingChatRef = useRef<string>('');
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const activeDocument = documents.find(d => d.id === activeDocId) || documents[0];
 
@@ -711,6 +712,9 @@ export function useDocuments() {
 
     let editTargetRemoved = false;
     let editInsertPosition = 0;
+
+    // Create abort controller for this request
+    abortControllerRef.current = new AbortController();
 
     await sendMessageStream([systemMessage, ...chatHistory], {
       onToken: (token) => {
@@ -870,22 +874,42 @@ export function useDocuments() {
         
         setIsLoading(false);
         setIsWritingToDoc(false);
+        abortControllerRef.current = null;
       },
       onError: (err) => {
-        setError(err.message);
-        setDocuments(prev => prev.map(doc => 
-          doc.id === activeDocId 
-            ? { 
-                ...doc, 
-                chatMessages: doc.chatMessages.filter(m => m.id !== assistantId),
-                updatedAt: Date.now() 
-              }
-            : doc
-        ));
+        // Don't show error or remove message if it was aborted by user
+        if (err.name === 'AbortError') {
+          // Keep the partial response, just mark as complete
+          setDocuments(prev => prev.map(doc => 
+            doc.id === activeDocId 
+              ? { 
+                  ...doc, 
+                  chatMessages: doc.chatMessages.map(m => 
+                    m.id === assistantId 
+                      ? { ...m, content: streamingChatRef.current || '(stopped)', isWriting: false }
+                      : m
+                  ),
+                  updatedAt: Date.now() 
+                }
+              : doc
+          ));
+        } else {
+          setError(err.message);
+          setDocuments(prev => prev.map(doc => 
+            doc.id === activeDocId 
+              ? { 
+                  ...doc, 
+                  chatMessages: doc.chatMessages.filter(m => m.id !== assistantId),
+                  updatedAt: Date.now() 
+                }
+              : doc
+          ));
+        }
         setIsLoading(false);
         setIsWritingToDoc(false);
+        abortControllerRef.current = null;
       },
-    }, selectedModel);
+    }, selectedModel, abortControllerRef.current.signal);
   }, [activeDocument, activeDocId, isLoading, selectedModel]);
 
   const clearChat = useCallback(() => {
@@ -896,6 +920,12 @@ export function useDocuments() {
     ));
     setError(null);
   }, [activeDocId]);
+
+  const stopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  }, []);
 
   return {
     documents,
@@ -913,5 +943,6 @@ export function useDocuments() {
     deleteDocument,
     sendMessage,
     clearChat,
+    stopGeneration,
   };
 }

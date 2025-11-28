@@ -11,6 +11,7 @@ interface GoogleDocsUIProps {
   selectedModel: string;
   onModelChange: (model: string) => void;
   onSendMessage: (text: string, editorRef: React.RefObject<TiptapEditorHandle | null>) => void;
+  onStopGeneration: () => void;
   onCreateDocument: (title?: string) => void;
   onSwitchDocument: (docId: string) => void;
   onUpdateTitle: (docId: string, title: string) => void;
@@ -62,6 +63,7 @@ export default function GoogleDocsUI({
   selectedModel,
   onModelChange,
   onSendMessage,
+  onStopGeneration,
   onCreateDocument,
   onSwitchDocument,
   onUpdateTitle,
@@ -1286,6 +1288,7 @@ ${html}
           isOpen={chatOpen}
           onClose={() => setChatOpen(false)}
           onSendMessage={handleSendMessage}
+          onStopGeneration={onStopGeneration}
           onCreateDocument={onCreateDocument}
           onSwitchDocument={onSwitchDocument}
         />

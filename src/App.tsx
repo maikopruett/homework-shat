@@ -15,6 +15,7 @@ export default function App() {
     updateContent,
     deleteDocument,
     sendMessage,
+    stopGeneration,
   } = useDocuments();
 
   return (
@@ -26,6 +27,7 @@ export default function App() {
       selectedModel={selectedModel}
       onModelChange={setSelectedModel}
       onSendMessage={sendMessage}
+      onStopGeneration={stopGeneration}
       onCreateDocument={createDocument}
       onSwitchDocument={switchDocument}
       onUpdateTitle={updateTitle}

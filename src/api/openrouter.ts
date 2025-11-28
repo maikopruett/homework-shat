@@ -38,7 +38,8 @@ export interface StreamCallbacks {
 export async function sendMessageStream(
   messages: ChatMessage[],
   callbacks: StreamCallbacks,
-  model: string = DEFAULT_MODEL
+  model: string = DEFAULT_MODEL,
+  abortSignal?: AbortSignal
 ): Promise<void> {
   const startTime = performance.now();
   let firstTokenTime: number | null = null;
@@ -58,7 +59,8 @@ export async function sendMessageStream(
         messages,
         max_tokens: 4096,
         stream: true
-      })
+      }),
+      signal: abortSignal
     });
 
     if (!response.ok) {

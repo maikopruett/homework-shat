@@ -144,6 +144,7 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
         }),
       ],
       content,
+      immediatelyRender: false, // Prevents duplicate extension warning in React 18 Strict Mode
       onUpdate: ({ editor }) => {
         onUpdate?.(editor.getHTML());
       },
