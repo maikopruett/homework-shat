@@ -1,6 +1,6 @@
-const API_KEY = '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';
+const API_KEY = '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';
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_MODEL = 'tngtech/tng-r1t-chimera:free';
+const DEFAULT_MODEL = 'x-ai/grok-4.1-fast:free';
 
 export interface ModelInfo {
   id: string;
@@ -9,12 +9,14 @@ export interface ModelInfo {
 }
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
-  { id: 'tngtech/tng-r1t-chimera:free', name: 'TNG R1T Chimera', provider: 'TNG' },
+  { id: 'x-ai/grok-4.1-fast:free', name: 'Grok 4.1 Fast', provider: 'xAI' },
+  { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera', provider: 'TNG' },
+  { id: 'kwaipilot/kat-coder-pro:free', name: 'Kat Coder Pro', provider: 'Kwaipilot' },
+  { id: 'tngtech/deepseek-r1t-chimera:free', name: 'DeepSeek R1T Chimera', provider: 'TNG' },
+  { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air', provider: 'Z-AI' },
+  { id: 'nvidia/nemotron-nano-12b-v2-vl:free', name: 'Nemotron Nano 12B V2 VL', provider: 'NVIDIA' },
+  { id: 'qwen/qwen3-coder:free', name: 'Qwen 3 Coder', provider: 'Qwen' },
   { id: 'google/gemma-3-27b-it:free', name: 'Gemma 3 27B', provider: 'Google' },
-  { id: 'deepseek/deepseek-chat-v3-0324:free', name: 'DeepSeek V3', provider: 'DeepSeek' },
-  { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B', provider: 'Meta' },
-  { id: 'qwen/qwen3-235b-a22b:free', name: 'Qwen 3 235B', provider: 'Qwen' },
-  { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1', provider: 'Mistral' },
 ];
 
 export interface ChatMessage {
