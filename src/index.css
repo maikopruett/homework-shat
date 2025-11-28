@@ -40,33 +40,6 @@ body {
 .loading-dot:nth-child(2) { animation-delay: 0.2s; }
 .loading-dot:nth-child(3) { animation-delay: 0.4s; }
 
-/* Ghost Mode Toggle Button */
-.ghost-toggle-btn {
-  position: fixed;
-  bottom: 16px;
-  left: 16px;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(80, 80, 80, 0.4);
-  color: rgba(180, 180, 180, 0.6);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-  z-index: 9999;
-  opacity: 0.4;
-}
-
-.ghost-toggle-btn:hover {
-  background: rgba(100, 100, 100, 0.7);
-  color: rgba(220, 220, 220, 1);
-  transform: scale(1.1);
-  opacity: 1;
-}
-
 /* ============================================
    GOOGLE DOCS UI STYLES
    ============================================ */
@@ -84,30 +57,48 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 16px 4px 8px;
+  padding: 4px 12px 0 4px;
   background: #fff;
-  border-bottom: 1px solid #e0e0e0;
-  min-height: 56px;
+  min-height: 52px;
 }
 
 .gdocs-header-left {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
 }
 
-.gdocs-icon {
-  width: 48px;
-  height: 48px;
+.gdocs-logo-link {
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+
+.gdocs-logo-link:hover {
+  background: #f1f3f4;
+}
+
+.gdocs-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .gdocs-title-area {
   display: flex;
   flex-direction: column;
+  gap: 0;
+  margin-left: 4px;
+}
+
+.gdocs-title-row {
+  display: flex;
+  align-items: center;
   gap: 0;
 }
 
@@ -117,11 +108,12 @@ body {
   font-size: 18px;
   font-weight: 400;
   color: #202124;
-  padding: 2px 8px;
+  padding: 4px 8px;
   margin: 0;
   border-radius: 4px;
   background: transparent;
-  min-width: 200px;
+  min-width: 100px;
+  max-width: 400px;
 }
 
 .gdocs-title-input:hover {
@@ -133,14 +125,14 @@ body {
   box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
 }
 
-.gdocs-title-icons {
+.gdocs-title-badges {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding-left: 8px;
+  gap: 0;
+  margin-left: 4px;
 }
 
-.gdocs-icon-btn {
+.gdocs-badge-btn {
   width: 28px;
   height: 28px;
   border: none;
@@ -154,53 +146,98 @@ body {
   transition: background 0.2s;
 }
 
-.gdocs-icon-btn:hover {
+.gdocs-badge-btn:hover {
   background: #f1f3f4;
 }
 
-.gdocs-save-status {
-  color: #5f6368;
-  font-size: 12px;
+.gdocs-save-indicator {
   display: flex;
   align-items: center;
-  padding-left: 8px;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.gdocs-save-indicator:hover {
+  background: #f1f3f4;
 }
 
 .gdocs-header-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
-.gdocs-history-btn,
-.gdocs-comments-btn,
+.gdocs-header-icon-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #444746;
+  transition: background 0.2s;
+}
+
+.gdocs-header-icon-btn:hover {
+  background: #f1f3f4;
+}
+
 .gdocs-meet-btn {
-  width: 36px;
-  height: 36px;
+  position: relative;
+}
+
+.gdocs-dropdown-arrow {
+  margin-left: -4px;
 }
 
 .gdocs-share-btn {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #1a73e8;
-  color: #fff;
+  background: #c2e7ff;
+  color: #001d35;
   border: none;
   border-radius: 24px;
-  padding: 8px 20px;
+  padding: 6px 16px 6px 12px;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.2s, box-shadow 0.2s;
+  margin-left: 8px;
 }
 
 .gdocs-share-btn:hover {
-  background: #1765cc;
+  background: #a8d8ff;
   box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
 }
 
 .gdocs-share-btn svg {
-  stroke: #fff;
+  stroke: #001d35;
+}
+
+.gdocs-gemini-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: #dde3ea;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  margin-left: 4px;
+}
+
+.gdocs-gemini-btn:hover {
+  background: #c7cdd4;
 }
 
 .gdocs-avatar {
@@ -210,6 +247,11 @@ body {
   overflow: hidden;
   cursor: pointer;
   margin-left: 8px;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Menu Bar */
@@ -219,6 +261,10 @@ body {
   padding: 0 44px;
   background: #fff;
   height: 28px;
+}
+
+.gdocs-menu-wrapper {
+  position: relative;
 }
 
 .gdocs-menu-item {
@@ -238,18 +284,156 @@ body {
   background: #f1f3f4;
 }
 
+.gdocs-menu-item.active {
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+/* File Dropdown Menu */
+.gdocs-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.15), 0 4px 20px rgba(0,0,0,0.1);
+  min-width: 260px;
+  padding: 8px 0;
+  z-index: 1000;
+  animation: gdocs-dropdown-in 0.15s ease;
+}
+
+@keyframes gdocs-dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.gdocs-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: #202124;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gdocs-dropdown-item:hover:not(:disabled) {
+  background: #f1f3f4;
+}
+
+.gdocs-dropdown-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.gdocs-dropdown-item svg {
+  color: #5f6368;
+  flex-shrink: 0;
+}
+
+.gdocs-dropdown-item-danger {
+  color: #c5221f;
+}
+
+.gdocs-dropdown-item-danger svg {
+  color: #c5221f;
+}
+
+.gdocs-shortcut {
+  margin-left: auto;
+  font-size: 12px;
+  color: #9aa0a6;
+}
+
+.gdocs-dropdown-divider {
+  height: 1px;
+  background: #e0e0e0;
+  margin: 8px 0;
+}
+
 /* Toolbar */
 .gdocs-toolbar {
   display: flex;
   align-items: center;
-  padding: 4px 44px;
+  padding: 4px 8px;
   background: #edf2fa;
-  border-bottom: 1px solid #c7c7c7;
   min-height: 40px;
-  flex-wrap: wrap;
   gap: 2px;
-  border-radius: 0 0 8px 8px;
-  margin: 0 8px 0 8px;
+  border-radius: 24px;
+  margin: 4px 8px 0 8px;
+}
+
+.gdocs-omnibox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-right: 8px;
+}
+
+.gdocs-omnibox:hover {
+  background: rgba(32,33,36,0.08);
+}
+
+.gdocs-omnibox-text {
+  font-size: 14px;
+  color: #5f6368;
+}
+
+.gdocs-toolbar-spacer {
+  flex: 1;
+}
+
+.gdocs-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.gdocs-mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 4px 6px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+  font-size: 14px;
+  color: #444746;
+}
+
+.gdocs-mode-btn:hover {
+  background: rgba(32,33,36,0.08);
+}
+
+.gdocs-mode-text {
+  max-width: 0;
+  overflow: hidden;
+  transition: max-width 0.2s;
+}
+
+.gdocs-mode-btn:hover .gdocs-mode-text {
+  max-width: 100px;
+  margin-left: 4px;
 }
 
 .gdocs-toolbar-group {
@@ -266,8 +450,8 @@ body {
 }
 
 .gdocs-toolbar-btn {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border: none;
   background: transparent;
   border-radius: 4px;
@@ -284,8 +468,8 @@ body {
 }
 
 .gdocs-toolbar-btn svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
 }
 
 .gdocs-toolbar-select {
@@ -315,8 +499,111 @@ body {
   width: 120px;
 }
 
-.gdocs-fontsize-input {
+.gdocs-fontsize-btn {
+  width: 24px;
+  font-size: 16px;
+  font-weight: 300;
+}
+
+/* Color Picker */
+.gdocs-color-picker-wrapper {
+  position: relative;
+}
+
+.gdocs-color-btn {
+  position: relative;
+}
+
+.gdocs-color-indicator {
+  position: absolute;
+  bottom: 2px;
+  left: 5px;
+  right: 5px;
+  height: 3px;
+  border-radius: 1px;
+}
+
+.gdocs-color-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.15), 0 4px 20px rgba(0,0,0,0.1);
+  padding: 12px;
+  z-index: 1000;
+  animation: gdocs-dropdown-in 0.15s ease;
+}
+
+.gdocs-color-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 4px;
+  width: 200px;
+}
+
+.gdocs-highlight-grid {
+  grid-template-columns: repeat(8, 1fr);
+  width: 176px;
+}
+
+.gdocs-color-swatch {
+  width: 18px;
+  height: 18px;
+  border: 1px solid #dadce0;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.gdocs-color-swatch:hover {
+  transform: scale(1.2);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  z-index: 1;
+}
+
+/* Alignment Menu */
+.gdocs-align-wrapper {
+  position: relative;
+}
+
+.gdocs-align-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.15), 0 4px 20px rgba(0,0,0,0.1);
+  padding: 8px;
+  display: flex;
+  gap: 4px;
+  z-index: 1000;
+  animation: gdocs-dropdown-in 0.15s ease;
+}
+
+.gdocs-align-option {
   width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #444746;
+  transition: background 0.15s;
+}
+
+.gdocs-align-option:hover {
+  background: #f1f3f4;
+}
+
+/* Font size select */
+.gdocs-fontsize-input {
+  width: 48px;
   height: 28px;
   border: 1px solid transparent;
   background: transparent;
@@ -324,6 +611,9 @@ body {
   font-size: 13px;
   color: #444746;
   border-radius: 4px;
+  cursor: pointer;
+  appearance: none;
+  padding: 0 4px;
 }
 
 .gdocs-fontsize-input:hover {
@@ -333,12 +623,6 @@ body {
 .gdocs-fontsize-input:focus {
   border-color: #1a73e8;
   outline: none;
-}
-
-.gdocs-fontsize-btn {
-  width: 24px;
-  font-size: 16px;
-  font-weight: 300;
 }
 
 /* Ruler */
@@ -376,32 +660,102 @@ body {
 
 /* Document Area - OLD (moved to main content layout section) */
 
+.gdocs-pages-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 40px;
+}
+
 .gdocs-page {
   width: 816px;
   min-height: 1056px;
   background: #fff;
-  box-shadow: 0 0 5px rgba(0,0,0,0.1);
-  padding: 96px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+  padding: 72px 96px;
   position: relative;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+/* Visual page break indicator */
+.gdocs-page-break {
+  width: 816px;
+  height: 8px;
+  background: 
+    linear-gradient(to bottom, 
+      rgba(0,0,0,0.05) 0%, 
+      transparent 40%,
+      transparent 60%,
+      rgba(0,0,0,0.05) 100%
+    );
+  position: relative;
+}
+
+.gdocs-page-break::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #dadce0;
 }
 
 .gdocs-editor {
   width: 100%;
-  min-height: 100%;
+  min-height: 912px; /* Proper content height */
   outline: none;
   font-family: Arial, sans-serif;
   font-size: 11pt;
-  line-height: 1.5;
+  line-height: 1.15;
   color: #000;
   caret-color: #000;
   white-space: pre-wrap;
   word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.gdocs-editor p {
+  margin: 0 0 0 0;
+  padding: 0;
+  min-height: 1.15em;
+}
+
+.gdocs-editor div {
+  margin: 0;
+  padding: 0;
 }
 
 .gdocs-editor:empty::before {
   content: attr(data-placeholder);
   color: #999;
   font-style: italic;
+  position: absolute;
+}
+
+/* Page number indicator */
+.gdocs-page-number {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: #5f6368;
+  font-family: Arial, sans-serif;
+}
+
+/* Inserted content styling */
+.gdocs-editor [style*="margin-top: 24px"] {
+  border-top: 1px dashed #e0e0e0;
+  padding-top: 16px;
+  margin-top: 16px !important;
+}
+
+.gdocs-editor [style*="margin-top: 24px"]:first-child {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0 !important;
 }
 
 /* Loading indicator for Google Docs */
@@ -446,6 +800,23 @@ body {
   position: relative;
 }
 
+/* Chat Sidebar - Right Side */
+.gdocs-chat-sidebar {
+  width: 0;
+  min-width: 0;
+  background: #fff;
+  border-left: 1px solid #dadce0;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.gdocs-chat-sidebar.open {
+  width: 360px;
+  min-width: 360px;
+}
+
 .gdocs-document-area {
   flex: 1;
   overflow-y: auto;
@@ -459,7 +830,7 @@ body {
 /* AI Chat Toggle Button */
 .gdocs-chat-toggle {
   position: absolute;
-  left: 12px;
+  right: 12px;
   top: 20px;
   width: 36px;
   height: 36px;
@@ -488,27 +859,133 @@ body {
   color: #1a73e8;
 }
 
-.gdocs-chat-toggle-label {
-  font-size: 10px;
-  font-weight: 600;
-  margin-left: -2px;
-}
-
-/* Chat Sidebar */
-.gdocs-chat-sidebar {
-  width: 0;
-  min-width: 0;
+/* Document List Panel */
+.gdocs-doc-list-panel {
+  border-bottom: 1px solid #e0e0e0;
   background: #fff;
-  border-left: 1px solid #dadce0;
-  display: flex;
-  flex-direction: column;
-  transition: all 0.3s ease;
-  overflow: hidden;
 }
 
-.gdocs-chat-sidebar.open {
-  width: 360px;
-  min-width: 360px;
+.gdocs-doc-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gdocs-doc-list-header:hover {
+  background: #f8f9fa;
+}
+
+.gdocs-doc-list-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.gdocs-doc-list-title svg {
+  color: #5f6368;
+}
+
+.gdocs-doc-list-chevron {
+  color: #5f6368;
+  transition: transform 0.2s;
+}
+
+.gdocs-doc-list-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+.gdocs-doc-list {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px 8px 8px;
+}
+
+.gdocs-doc-list-new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px dashed #dadce0;
+  background: transparent;
+  border-radius: 8px;
+  color: #1a73e8;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: 4px;
+}
+
+.gdocs-doc-list-new:hover {
+  background: #e8f0fe;
+  border-color: #1a73e8;
+}
+
+.gdocs-doc-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gdocs-doc-list-item:hover {
+  background: #f1f3f4;
+}
+
+.gdocs-doc-list-item.active {
+  background: #e8f0fe;
+}
+
+.gdocs-doc-list-item-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #1a73e8;
+}
+
+.gdocs-doc-list-item.active .gdocs-doc-list-item-icon {
+  color: #1a73e8;
+}
+
+.gdocs-doc-list-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.gdocs-doc-list-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #202124;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gdocs-doc-list-item.active .gdocs-doc-list-item-title {
+  color: #1a73e8;
+}
+
+.gdocs-doc-list-item-meta {
+  font-size: 11px;
+  color: #5f6368;
+  margin-top: 2px;
 }
 
 .gdocs-chat-header {
@@ -669,6 +1146,8 @@ body {
   max-height: 120px;
   line-height: 1.4;
   transition: border-color 0.2s;
+  color: #000;
+  background: #fff;
 }
 
 .gdocs-chat-input-area textarea:focus {
@@ -701,6 +1180,138 @@ body {
 .gdocs-chat-send:disabled {
   background: #dadce0;
   cursor: not-allowed;
+}
+
+/* Writing indicator badge */
+.gdocs-writing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #e8f5e9;
+  color: #2e7d32;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 12px;
+  margin-left: 8px;
+  animation: gdocs-badge-pulse 2s ease-in-out infinite;
+}
+
+@keyframes gdocs-badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.gdocs-writing-dot {
+  width: 6px;
+  height: 6px;
+  background: #4caf50;
+  border-radius: 50%;
+  animation: gdocs-dot-pulse 1s ease-in-out infinite;
+}
+
+@keyframes gdocs-dot-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.8; }
+}
+
+/* Writing status in message */
+.gdocs-writing-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #2e7d32;
+  padding: 4px 0;
+  margin-left: 4px;
+}
+
+.gdocs-writing-status svg {
+  color: #4caf50;
+  animation: gdocs-pen-write 1s ease-in-out infinite;
+}
+
+@keyframes gdocs-pen-write {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+/* Typing indicator */
+.gdocs-typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+}
+
+.gdocs-typing-dot {
+  width: 4px;
+  height: 4px;
+  background: #5f6368;
+  border-radius: 50%;
+  animation: gdocs-typing 1.4s ease-in-out infinite;
+}
+
+.gdocs-typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.gdocs-typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes gdocs-typing {
+  0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+  30% { opacity: 1; transform: scale(1); }
+}
+
+/* Chat examples in empty state */
+.gdocs-chat-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+  justify-content: center;
+}
+
+.gdocs-chat-example {
+  background: #e8f0fe;
+  color: #1a73e8;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.gdocs-chat-example:hover {
+  background: #d2e3fc;
+}
+
+/* Document area AI writing state */
+.gdocs-document-area.ai-writing .gdocs-page {
+  box-shadow: 0 0 0 2px #4caf50, 0 4px 12px rgba(76, 175, 80, 0.2);
+  transition: box-shadow 0.3s ease;
+}
+
+.gdocs-document-area.ai-writing .gdocs-editor {
+  position: relative;
+}
+
+.gdocs-document-area.ai-writing .gdocs-editor::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  height: 16px;
+  background: #4caf50;
+  animation: gdocs-cursor-blink 1s step-end infinite;
+}
+
+@keyframes gdocs-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 /* Responsive adjustments for Google Docs */
