@@ -1,4 +1,4 @@
-const API_KEY = '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';
+const API_KEY = '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';
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const DEFAULT_MODEL = 'x-ai/grok-4.1-fast:free';
 

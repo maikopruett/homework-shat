@@ -22,7 +22,7 @@ export interface Document {
 
 const STORAGE_KEY = 'homework-documents';
 const MODEL_STORAGE_KEY = 'homework-selected-model';
-const DEFAULT_MODEL = 'tngtech/tng-r1t-chimera:free';
+const DEFAULT_MODEL = 'x-ai/grok-4.1-fast:free';
 
 // Parser state for handling structured AI responses
 type ParseState = 'idle' | 'in_tag' | 'in_chat' | 'in_write' | 'in_edit' | 'in_format';
@@ -223,6 +223,101 @@ function createNewDocument(title: string = 'Untitled document'): Document {
   };
 }
 
+// Normalize quotes and apostrophes for flexible text matching
+function normalizeForMatching(text: string): string {
+  return text
+    .replace(/[''`′‵ʼ]/g, "'")  // Normalize single quotes/apostrophes
+    .replace(/[""″‶]/g, '"');   // Normalize double quotes
+}
+
+// Extract a reasonable target from potentially malformed AI output
+function extractReasonableTarget(target: string): string[] {
+  const candidates: string[] = [];
+  
+  // If target is short and reasonable, use it as-is
+  if (target.length <= 100 && !target.includes('\n')) {
+    candidates.push(target);
+    return candidates;
+  }
+  
+  // Try first line only (most likely the actual title)
+  const firstLine = target.split('\n')[0].trim();
+  if (firstLine.length > 0 && firstLine.length <= 150) {
+    candidates.push(firstLine);
+  }
+  
+  // If first line contains a colon with repeated text (like "Title: Title"), extract just the first part
+  const colonMatch = firstLine.match(/^(.+?):\s*\1/);
+  if (colonMatch) {
+    candidates.push(colonMatch[1].trim());
+  }
+  
+  // Try text before first colon if it looks like "Title: rest of content"
+  const beforeColon = firstLine.split(':')[0].trim();
+  if (beforeColon.length > 0 && beforeColon.length < firstLine.length) {
+    candidates.push(beforeColon);
+  }
+  
+  // Also try the original if nothing else works
+  if (candidates.length === 0) {
+    candidates.push(target);
+  }
+  
+  return candidates;
+}
+
+// Search for text across multiple nodes (handles text split by formatting)
+interface TextSearchResult {
+  from: number;
+  to: number;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function findTextInDocument(doc: any, searchText: string): TextSearchResult | null {
+  // Build a map of all text content with positions
+  const textSegments: { text: string; pos: number }[] = [];
+  
+  doc.descendants((node: { isText: boolean; text?: string }, pos: number) => {
+    if (node.isText && node.text) {
+      textSegments.push({ text: node.text, pos });
+    }
+  });
+  
+  if (textSegments.length === 0) return null;
+  
+  // Build combined text and position map
+  let combinedText = '';
+  const positionMap: { charIndex: number; docPos: number }[] = [];
+  
+  for (const segment of textSegments) {
+    for (let i = 0; i < segment.text.length; i++) {
+      positionMap.push({
+        charIndex: combinedText.length + i,
+        docPos: segment.pos + i
+      });
+    }
+    combinedText += segment.text;
+  }
+  
+  // Search in combined text (normalized)
+  const normalizedCombined = normalizeForMatching(combinedText);
+  const normalizedSearch = normalizeForMatching(searchText);
+  const index = normalizedCombined.indexOf(normalizedSearch);
+  
+  if (index === -1) return null;
+  
+  // Map back to document positions
+  const fromEntry = positionMap[index];
+  const toEntry = positionMap[index + searchText.length - 1];
+  
+  if (!fromEntry || !toEntry) return null;
+  
+  return {
+    from: fromEntry.docPos,
+    to: toEntry.docPos + 1  // +1 because 'to' is exclusive in Tiptap
+  };
+}
+
 // Convert plain text with line breaks to HTML
 function textToHtml(text: string): string {
   // Split by double newlines for paragraphs
@@ -266,27 +361,21 @@ function applyFormatting(editor: TiptapEditorHandle, action: FormatAction): bool
   // If target is specific text, we need to select it first
   if (action.target !== 'all') {
     const doc = editorInstance.state.doc;
-    let found = false;
-    let from = 0;
-    let to = 0;
+    let result: TextSearchResult | null = null;
 
-    doc.descendants((node, pos) => {
-      if (found) return false;
-      if (node.isText && node.text) {
-        const index = node.text.indexOf(action.target);
-        if (index !== -1) {
-          from = pos + index;
-          to = from + action.target.length;
-          found = true;
-          return false;
-        }
-      }
-    });
+    // Get candidate targets (handles malformed AI output)
+    const candidates = extractReasonableTarget(action.target);
 
-    if (found) {
-      editorInstance.chain().focus().setTextSelection({ from, to }).run();
+    // Try each candidate until we find a match
+    for (const candidate of candidates) {
+      result = findTextInDocument(doc, candidate);
+      if (result) break;
+    }
+
+    if (result) {
+      editorInstance.chain().focus().setTextSelection({ from: result.from, to: result.to }).run();
     } else {
-      console.warn('Could not find text to format:', action.target);
+      console.warn('Could not find text to format. Tried candidates:', candidates);
       return false;
     }
   } else {
@@ -711,7 +800,6 @@ export function useDocuments() {
     ));
 
     let editTargetRemoved = false;
-    let editInsertPosition = 0;
 
     // Create abort controller for this request
     abortControllerRef.current = new AbortController();
@@ -779,21 +867,11 @@ export function useDocuments() {
               const editor = editorRefStore.current.getEditor();
               if (editor) {
                 const doc = editor.state.doc;
-                let found = false;
-
-                doc.descendants((node, pos) => {
-                  if (found) return false;
-                  if (node.isText && node.text) {
-                    const index = node.text.indexOf(findText);
-                    if (index !== -1) {
-                      editInsertPosition = pos + index;
-                      const to = editInsertPosition + findText.length;
-                      editor.chain().focus().setTextSelection({ from: editInsertPosition, to }).deleteSelection().run();
-                      found = true;
-                      return false;
-                    }
-                  }
-                });
+                const result = findTextInDocument(doc, findText);
+                
+                if (result) {
+                  editor.chain().focus().setTextSelection({ from: result.from, to: result.to }).deleteSelection().run();
+                }
               }
               editTargetRemoved = true;
             }
