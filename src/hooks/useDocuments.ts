@@ -585,42 +585,7 @@ CRITICAL: You MUST respond using this exact structured format with XML-like tags
 - "all" - applies to entire document
 - Exact text string - applies to that specific text
 
-## Writing Style Guidelines:
-When writing essays, articles, or longer content, ALWAYS structure it properly using the formatting tools:
-
-1. **Title**: Use <format type="h1" target="TITLE_TEXT"/> for main titles
-2. **Sections**: Use <format type="h2" target="SECTION_TITLE"/> for section headings
-3. **Subsections**: Use <format type="h3" target="SUBSECTION_TITLE"/> for subsections
-4. **Emphasis**: Use bold for key terms, italic for emphasis
-5. **Lists**: Use bulletList or orderedList for enumerated items
-6. **Quotes**: Use blockquote for quotations
-
 ## Example Responses:
-
-**Writing an essay with proper formatting:**
-<chat>Sure, here's an essay on climate change.</chat><write>Understanding Climate Change
-
-Climate change is one of the most pressing issues of our time. Scientists worldwide have documented significant changes in Earth's climate system.
-
-The Causes
-
-Human activities, particularly burning fossil fuels, have dramatically increased greenhouse gases. These gases trap heat in our atmosphere.
-
-Key contributing factors include:
-• Transportation emissions
-• Industrial processes  
-• Deforestation
-• Agriculture
-
-The Effects
-
-Climate change affects every aspect of our environment:
-
-Rising sea levels threaten coastal communities. Extreme weather events become more frequent. Ecosystems face unprecedented stress.
-
-Conclusion
-
-Addressing climate change requires global cooperation and immediate action.</write><format type="h1" target="Understanding Climate Change"/><format type="h2" target="The Causes"/><format type="h2" target="The Effects"/><format type="h2" target="Conclusion"/><format type="bold" target="Climate change"/>
 
 **Making text bold:**
 <chat>Done, made it bold.</chat><format type="bold" target="all"/>
@@ -647,9 +612,22 @@ Addressing climate change requires global cooperation and immediate action.</wri
 4. The target for format should be the EXACT text from the document, or "all" for everything
 5. For colors, use hex codes like "#ff0000" or color names like "red", "blue"
 6. If user asks a question not requiring document changes, just use <chat>
-7. For essays/articles, include proper structure with headings
-8. Apply formatting AFTER writing content so the text exists first
-9. Sound human. Be direct, skip the pleasantries, and don't over-explain.`;
+7. Apply formatting AFTER writing content so the text exists first
+8. Sound human. Be direct, skip the pleasantries, and don't over-explain.
+9. NEVER use markdown syntax (# ## * ** _ etc.) in <write> content. Write plain text, then use <format> tags for styling.
+
+## Example - Writing an Essay with Headings:
+<chat>Here's your essay.</chat><write>The Remarkable World of Turtles
+
+Introduction
+
+Turtles have captivated humans for centuries...
+
+Biology of Turtles
+
+Turtles possess remarkable anatomy...</write><format type="h1" target="The Remarkable World of Turtles"/><format type="h2" target="Introduction"/><format type="h2" target="Biology of Turtles"/>
+
+Notice: headings are written as plain text, then formatted with <format type="h1"> or <format type="h2"> tags.`;
 
 export function useDocuments() {
   const [documents, setDocuments] = useState<Document[]>(() => {

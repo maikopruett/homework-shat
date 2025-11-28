@@ -133,7 +133,6 @@ export default function GoogleDocsUI({
   const handleBold = () => editorRef.current?.toggleBold();
   const handleItalic = () => editorRef.current?.toggleItalic();
   const handleUnderline = () => editorRef.current?.toggleUnderline();
-  const handleStrikethrough = () => editorRef.current?.toggleStrike();
   
   const handleUndo = () => editorRef.current?.undo();
   const handleRedo = () => editorRef.current?.redo();

@@ -1,6 +1,7 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import type { Document } from '../hooks/useDocuments';
 import { AVAILABLE_MODELS } from '../api/openrouter';
+import { parseFile, isValidFileType, getAcceptedFileTypes, type ParsedFile } from '../utils/fileParser';
 
 interface ChatSidebarProps {
   documents: Document[];
@@ -21,7 +22,6 @@ export default function ChatSidebar({
   documents,
   activeDocument,
   isLoading,
-  isWritingToDoc,
   selectedModel,
   onModelChange,
   isOpen,
@@ -34,9 +34,15 @@ export default function ChatSidebar({
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [chatInput, setChatInput] = useState('');
   const [showDocList, setShowDocList] = useState(true);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [attachedFiles, setAttachedFiles] = useState<ParsedFile[]>([]);
+  const [isParsingFile, setIsParsingFile] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const dragCounter = useRef(0);
 
   // Close model menu when clicking outside
   useEffect(() => {
@@ -58,11 +64,98 @@ export default function ChatSidebar({
     }
   }, [activeDocument?.chatMessages]);
 
+  // Handle file processing
+  const processFiles = useCallback(async (files: FileList | File[]) => {
+    const validFiles = Array.from(files).filter(isValidFileType);
+    
+    if (validFiles.length === 0) {
+      setFileError('Please drop .txt, .pdf, or .docx files');
+      setTimeout(() => setFileError(null), 3000);
+      return;
+    }
+
+    setIsParsingFile(true);
+    setFileError(null);
+
+    try {
+      const parsed = await Promise.all(validFiles.map(parseFile));
+      setAttachedFiles(prev => [...prev, ...parsed]);
+    } catch (err) {
+      setFileError(err instanceof Error ? err.message : 'Failed to parse file');
+      setTimeout(() => setFileError(null), 3000);
+    } finally {
+      setIsParsingFile(false);
+    }
+  }, []);
+
+  // Drag and drop handlers
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current++;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current--;
+    if (dragCounter.current === 0) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounter.current = 0;
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFiles(e.dataTransfer.files);
+    }
+  }, [processFiles]);
+
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processFiles(e.target.files);
+    }
+    // Reset input so the same file can be selected again
+    e.target.value = '';
+  }, [processFiles]);
+
+  const removeAttachedFile = useCallback((index: number) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+  }, []);
+
   const handleChatSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (chatInput.trim() && !isLoading) {
-      onSendMessage(chatInput.trim());
+    if ((chatInput.trim() || attachedFiles.length > 0) && !isLoading) {
+      // Build message with attached file contents
+      let message = chatInput.trim();
+      
+      if (attachedFiles.length > 0) {
+        const fileContents = attachedFiles.map(f => 
+          `--- ${f.name} ---\n${f.content}`
+        ).join('\n\n');
+        
+        if (message) {
+          message = `${message}\n\n[Attached Requirements]\n${fileContents}`;
+        } else {
+          message = `Here are my assignment requirements:\n\n${fileContents}`;
+        }
+      }
+      
+      onSendMessage(message);
       setChatInput('');
+      setAttachedFiles([]);
     }
   };
 
@@ -97,7 +190,28 @@ export default function ChatSidebar({
   const chatMessages = activeDocument?.chatMessages || [];
 
   return (
-    <div className={`bg-white border-l border-gray-300 flex flex-col transition-all duration-300 overflow-hidden ${isOpen ? 'w-[360px] min-w-[360px]' : 'w-0 min-w-0'}`}>
+    <div 
+      className={`bg-white border-l border-gray-300 flex flex-col transition-all duration-300 overflow-hidden relative ${isOpen ? 'w-[360px] min-w-[360px]' : 'w-0 min-w-0'}`}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+        {/* Drag overlay */}
+        {isDragging && (
+          <div className="absolute inset-0 bg-blue-500/10 border-2 border-dashed border-blue-500 z-50 flex items-center justify-center backdrop-blur-[1px]">
+            <div className="bg-white rounded-xl p-6 shadow-lg text-center">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.5" className="mx-auto mb-3">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              <p className="text-blue-600 font-medium">Drop your requirements file</p>
+              <p className="text-gray-500 text-sm mt-1">.docx, .pdf, or .txt</p>
+            </div>
+          </div>
+        )}
+
         {/* Document List Panel */}
         <div className="border-b border-gray-200 bg-white">
           <div 
@@ -257,39 +371,109 @@ export default function ChatSidebar({
           ))}
         </div>
 
-        <form className="flex items-end gap-2 px-4 py-3 border-t border-gray-200 bg-white" onSubmit={handleChatSubmit}>
-          <textarea
-            ref={chatInputRef}
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            onKeyDown={handleChatKeyDown}
-            placeholder="Ask AI to write or edit..."
-            rows={1}
-            disabled={isLoading}
-            className="flex-1 border border-gray-300 rounded-2xl px-4 py-2.5 text-sm font-[inherit] resize-none outline-none max-h-[120px] leading-snug transition-colors text-black bg-white focus:border-blue-600 placeholder:text-gray-400"
-          />
-          {isLoading ? (
-            <button 
-              type="button"
-              onClick={onStopGeneration}
-              className="w-10 h-10 border-none bg-red-500 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-red-600"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="6" width="12" height="12" rx="2" />
-              </svg>
-            </button>
-          ) : (
-            <button 
-              type="submit" 
-              disabled={!chatInput.trim()}
-              className="w-10 h-10 border-none bg-blue-600 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-              </svg>
-            </button>
+        <div className="border-t border-gray-200 bg-white">
+          {/* Attached files display */}
+          {attachedFiles.length > 0 && (
+            <div className="px-4 pt-3 flex flex-wrap gap-2">
+              {attachedFiles.map((file, index) => (
+                <div 
+                  key={index}
+                  className="flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg text-xs"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                  <span className="max-w-[120px] truncate">{file.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachedFile(index)}
+                    className="hover:text-red-500 transition-colors"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18"/>
+                      <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
-        </form>
+
+          {/* File error message */}
+          {fileError && (
+            <div className="px-4 pt-2 text-xs text-red-500">
+              {fileError}
+            </div>
+          )}
+
+          {/* Parsing indicator */}
+          {isParsingFile && (
+            <div className="px-4 pt-2 text-xs text-blue-600 flex items-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+              </svg>
+              Parsing file...
+            </div>
+          )}
+
+          <form className="flex items-end gap-2 px-4 py-3" onSubmit={handleChatSubmit}>
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={getAcceptedFileTypes()}
+              onChange={handleFileInputChange}
+              className="hidden"
+              multiple
+            />
+            
+            {/* Attach file button */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading || isParsingFile}
+              className="w-10 h-10 border border-gray-300 bg-white rounded-full cursor-pointer flex items-center justify-center text-gray-500 transition-all flex-shrink-0 hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Attach requirements file (.docx, .pdf, .txt)"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+              </svg>
+            </button>
+
+            <textarea
+              ref={chatInputRef}
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={handleChatKeyDown}
+              placeholder={attachedFiles.length > 0 ? "Add instructions or just send..." : "Ask AI to write or edit..."}
+              rows={1}
+              disabled={isLoading}
+              className="flex-1 border border-gray-300 rounded-2xl px-4 py-2.5 text-sm font-[inherit] resize-none outline-none max-h-[120px] leading-snug transition-colors text-black bg-white focus:border-blue-600 placeholder:text-gray-400"
+            />
+            {isLoading ? (
+              <button 
+                type="button"
+                onClick={onStopGeneration}
+                className="w-10 h-10 border-none bg-red-500 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-red-600"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              </button>
+            ) : (
+              <button 
+                type="submit" 
+                disabled={!chatInput.trim() && attachedFiles.length === 0}
+                className="w-10 h-10 border-none bg-blue-600 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                </svg>
+              </button>
+            )}
+          </form>
+        </div>
     </div>
   );
 }
