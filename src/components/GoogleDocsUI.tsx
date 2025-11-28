@@ -1323,7 +1323,7 @@ ${html}
             <h3 className="font-semibold text-gray-900 text-sm mb-2">DocFake</h3>
             
             <p className="text-xs text-gray-600 leading-relaxed mb-3">
-              Looks like Google Docs, but with AI built in. Your teachers won't know the difference. Thank me later.
+              Looks like Google Docs, but with AI built in. Your teachers won't know the difference.
             </p>
             
             <div className="border-t border-gray-100 pt-3">
