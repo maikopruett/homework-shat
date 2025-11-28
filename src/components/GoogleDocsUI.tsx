@@ -1288,7 +1288,6 @@ ${html}
           chatMode={chatMode}
           onModeChange={setChatMode}
           isOpen={chatOpen}
-          onClose={() => setChatOpen(false)}
           onSendMessage={handleSendMessage}
           onStopGeneration={onStopGeneration}
           onCreateDocument={onCreateDocument}

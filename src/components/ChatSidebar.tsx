@@ -13,7 +13,6 @@ interface ChatSidebarProps {
   chatMode: ChatMode;
   onModeChange: (mode: ChatMode) => void;
   isOpen: boolean;
-  onClose: () => void;
   onSendMessage: (text: string, mode: ChatMode) => void;
   onStopGeneration: () => void;
   onCreateDocument: (title?: string) => void;
@@ -29,7 +28,6 @@ export default function ChatSidebar({
   chatMode,
   onModeChange,
   isOpen,
-  onClose,
   onSendMessage,
   onStopGeneration,
   onCreateDocument,
@@ -285,6 +283,12 @@ export default function ChatSidebar({
                 <path d="M480-80q-6,0-11-4t-7-10q-17-67-51-126T328-328T220-411T94-462q-6-2-10-7t-4-11t4-11t10-7q67-17 126-51t108-83t83-108t51-126q2-6 7-10t11-4t10.5,4t6.5,10q18,67 52,126t83,108t108,83t126,51q6,2 10,7t4,11t-4,11t-10,7q-67,17-126,51T632-328T549-220T498-94q-2,6-7,10t-11,4Z"/>
               </svg>
               <span className="font-medium text-gray-800">{currentModel.name}</span>
+              {currentModel.isBest && (
+                <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-blue-100 text-blue-700 rounded">Best</span>
+              )}
+              {currentModel.isFastest && (
+                <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-green-100 text-green-700 rounded">Fast</span>
+              )}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-500">
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
@@ -297,14 +301,30 @@ export default function ChatSidebar({
                   {AVAILABLE_MODELS.map(model => (
                     <button
                       key={model.id}
-                      className={`flex items-center justify-between w-full px-4 py-2.5 border-none bg-transparent text-left cursor-pointer transition-colors hover:bg-gray-100 ${model.id === selectedModel ? 'bg-blue-50' : ''}`}
+                      className={`flex items-center justify-between w-full px-4 py-2.5 border-none text-left cursor-pointer transition-colors hover:bg-gray-100 ${
+                        model.id === selectedModel 
+                          ? 'bg-blue-50' 
+                          : model.isBest 
+                            ? 'bg-blue-50/50' 
+                            : model.isFastest 
+                              ? 'bg-green-50/50' 
+                              : 'bg-transparent'
+                      }`}
                       onClick={() => {
                         onModelChange(model.id);
                         setModelMenuOpen(false);
                       }}
                     >
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-sm font-medium text-gray-800">{model.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-800">{model.name}</span>
+                          {model.isBest && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-blue-100 text-blue-700 rounded">Best</span>
+                          )}
+                          {model.isFastest && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-green-100 text-green-700 rounded">Fast</span>
+                          )}
+                        </div>
                         <span className="text-xs text-gray-500">{model.provider}</span>
                       </div>
                       {model.id === selectedModel && (
@@ -354,16 +374,6 @@ export default function ChatSidebar({
                 Edit
               </button>
             </div>
-            
-            <button 
-              className="w-8 h-8 border-none bg-transparent rounded-full cursor-pointer flex items-center justify-center text-gray-500 transition-colors hover:bg-gray-200"
-              onClick={onClose}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="18" y1="6" x2="6" y2="18"/>
-                <line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
           </div>
         </div>
 

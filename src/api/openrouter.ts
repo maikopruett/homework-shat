@@ -5,14 +5,16 @@ export interface ModelInfo {
   id: string;
   name: string;
   provider: string;
+  isBest?: boolean;
+  isFastest?: boolean;
 }
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
-  { id: 'x-ai/grok-4.1-fast:free', name: 'Grok 4.1 Fast', provider: 'xAI' },
+  { id: 'x-ai/grok-4.1-fast:free', name: 'Grok 4.1 Fast', provider: 'xAI', isBest: true },
   { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera', provider: 'TNG' },
   { id: 'kwaipilot/kat-coder-pro:free', name: 'Kat Coder Pro', provider: 'Kwaipilot' },
   { id: 'tngtech/deepseek-r1t-chimera:free', name: 'DeepSeek R1T Chimera', provider: 'TNG' },
-  { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air', provider: 'Z-AI' },
+  { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air', provider: 'Z-AI', isFastest: true },
   { id: 'nvidia/nemotron-nano-12b-v2-vl:free', name: 'Nemotron Nano 12B V2 VL', provider: 'NVIDIA' },
   { id: 'qwen/qwen3-coder:free', name: 'Qwen 3 Coder', provider: 'Qwen' },
   { id: 'google/gemma-3-27b-it:free', name: 'Gemma 3 27B', provider: 'Google' },
