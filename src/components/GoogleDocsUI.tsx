@@ -75,8 +75,10 @@ export default function GoogleDocsUI({
   const [chatMode, setChatMode] = useState<ChatMode>('edit');
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const fileMenuRef = useRef<HTMLDivElement>(null);
   const downloadMenuRef = useRef<HTMLDivElement>(null);
+  const infoRef = useRef<HTMLDivElement>(null);
   
   // Toolbar state
   const [fontSize, setFontSize] = useState(11);
@@ -110,6 +112,9 @@ export default function GoogleDocsUI({
       }
       if (headingMenuRef.current && !headingMenuRef.current.contains(e.target as Node)) {
         setHeadingMenuOpen(false);
+      }
+      if (infoRef.current && !infoRef.current.contains(e.target as Node)) {
+        setInfoOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -1293,6 +1298,42 @@ ${html}
           onCreateDocument={onCreateDocument}
           onSwitchDocument={onSwitchDocument}
         />
+      </div>
+
+      {/* Info Button - Bottom Left */}
+      <div className="fixed bottom-4 left-4 z-50" ref={infoRef}>
+        <button
+          onClick={() => setInfoOpen(!infoOpen)}
+          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md ${
+            infoOpen 
+              ? 'bg-blue-600 text-white' 
+              : 'bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-700 border border-gray-200'
+          }`}
+          title="About"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="16" x2="12" y2="12"/>
+            <line x1="12" y1="8" x2="12.01" y2="8"/>
+          </svg>
+        </button>
+        
+        {infoOpen && (
+          <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.15),_0_0_0_1px_rgba(0,0,0,0.05)] w-64 p-4 animate-[dropdown-in_0.15s_ease]">
+            <h3 className="font-semibold text-gray-900 text-sm mb-2">Homework Helper</h3>
+            
+            <p className="text-xs text-gray-600 leading-relaxed mb-3">
+              Looks like Google Docs, but with AI built in. Your teachers won't know the difference. Thank me later.
+            </p>
+            
+            <div className="border-t border-gray-100 pt-3">
+              <p className="text-[11px] text-gray-500">
+                Built by <span className="font-medium text-gray-700">Maiko</span>
+              </p>
+              <p className="text-[10px] text-gray-400">Software Engineer / Lord and Savior</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
