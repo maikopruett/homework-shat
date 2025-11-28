@@ -68,6 +68,7 @@ function parseToken(
     onEditStart: (findText: string) => void;
     onEditComplete: (content: string) => void;
     onFormat: (action: FormatAction) => void;
+    onClear: () => void;
   }
 ): ParseContext {
   const newCtx = { ...ctx };
@@ -126,6 +127,10 @@ function parseToken(
             } else {
               newCtx.state = 'idle';
             }
+          } else if (tagLower === 'clear' || tagLower === 'clear/') {
+            // Self-closing clear tag - clear the document
+            callbacks.onClear();
+            newCtx.state = 'idle';
           } else if (tagLower === '/chat') {
             newCtx.state = 'idle';
           } else if (tagLower === '/write') {
@@ -454,7 +459,10 @@ CRITICAL: You MUST respond using this exact structured format with XML-like tags
 ### 2. EDITING/Replacing existing content:
 <chat>Brief acknowledgment</chat><edit find="exact text to find">Replacement text</edit>
 
-### 3. FORMATTING text (bold, italic, colors, headings, lists, etc.):
+### 3. CLEARING the document (to start fresh):
+<chat>Brief acknowledgment</chat><clear/><write>New content</write>
+
+### 4. FORMATTING text (bold, italic, colors, headings, lists, etc.):
 <chat>Brief acknowledgment</chat><format type="TYPE" target="TARGET" value="VALUE"/>
 
 ### Format Types Available:
@@ -810,6 +818,26 @@ export function useDocuments() {
             
             if (editorRefStore.current) {
               applyFormatting(editorRefStore.current, action);
+            }
+          },
+          onClear: () => {
+            setIsWritingToDoc(true);
+            setDocuments(prev => prev.map(doc => 
+              doc.id === activeDocId 
+                ? { 
+                    ...doc, 
+                    chatMessages: doc.chatMessages.map(m => 
+                      m.id === assistantId 
+                        ? { ...m, isWriting: true }
+                        : m
+                    ),
+                    updatedAt: Date.now() 
+                  }
+                : doc
+            ));
+            
+            if (editorRefStore.current) {
+              editorRefStore.current.clearContent();
             }
           },
         });

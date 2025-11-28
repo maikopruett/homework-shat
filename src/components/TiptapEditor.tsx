@@ -16,6 +16,7 @@ export interface TiptapEditorHandle {
   getText: () => string;
   setContent: (content: string) => void;
   insertContent: (content: string) => void;
+  clearContent: () => void;
   focus: () => void;
   // Formatting commands
   toggleBold: () => void;
@@ -173,6 +174,9 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
       },
       insertContent: (newContent: string) => {
         editor?.commands.insertContent(newContent);
+      },
+      clearContent: () => {
+        editor?.commands.clearContent();
       },
       focus: () => {
         editor?.commands.focus();

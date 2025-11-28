@@ -169,12 +169,6 @@ export default function ChatSidebar({
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
             </div>
-            {isWritingToDoc && (
-              <span className="inline-flex items-center gap-1.5 bg-green-50 text-green-700 text-[11px] font-medium px-2.5 py-0.5 rounded-xl ml-2 animate-pulse">
-                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-ping" />
-                Writing...
-              </span>
-            )}
             
             {modelMenuOpen && (
               <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.15),_0_0_0_1px_rgba(0,0,0,0.05)] min-w-[260px] max-h-[400px] overflow-y-auto z-[1000] animate-[dropdown-in_0.15s_ease]">
@@ -244,16 +238,7 @@ export default function ChatSidebar({
                     <span className="w-2 h-2 bg-blue-600 rounded-full animate-[pulse-dot_1.4s_ease-in-out_infinite] [animation-delay:0.4s]" />
                   </span>
                 ) : (
-                  <>
-                    {msg.content}
-                    {msg.isWriting && (
-                      <span className="inline-flex items-center gap-[3px] ml-2">
-                        <span className="w-1 h-1 bg-gray-500 rounded-full animate-[typing_1.4s_ease-in-out_infinite]" />
-                        <span className="w-1 h-1 bg-gray-500 rounded-full animate-[typing_1.4s_ease-in-out_infinite] [animation-delay:0.2s]" />
-                        <span className="w-1 h-1 bg-gray-500 rounded-full animate-[typing_1.4s_ease-in-out_infinite] [animation-delay:0.4s]" />
-                      </span>
-                    )}
-                  </>
+                  msg.content
                 )}
               </div>
               {msg.role === 'assistant' && msg.isWriting && (
