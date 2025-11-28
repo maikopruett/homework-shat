@@ -1320,7 +1320,7 @@ ${html}
         
         {infoOpen && (
           <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.15),_0_0_0_1px_rgba(0,0,0,0.05)] w-64 p-4 animate-[dropdown-in_0.15s_ease]">
-            <h3 className="font-semibold text-gray-900 text-sm mb-2">Homework Helper</h3>
+            <h3 className="font-semibold text-gray-900 text-sm mb-2">DocFake</h3>
             
             <p className="text-xs text-gray-600 leading-relaxed mb-3">
               Looks like Google Docs, but with AI built in. Your teachers won't know the difference. Thank me later.
