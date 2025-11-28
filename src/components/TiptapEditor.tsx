@@ -42,6 +42,8 @@ export interface TiptapEditorHandle {
   redo: () => void;
   indent: () => void;
   outdent: () => void;
+  setTextIndent: (indent: string) => void;
+  unsetTextIndent: () => void;
 }
 
 interface TiptapEditorProps {
@@ -103,12 +105,65 @@ const FontSize = Extension.create({
   },
 });
 
+// Custom extension to add text-indent support for paragraphs (essay-style first-line indentation)
+const TextIndent = Extension.create({
+  name: 'textIndent',
+
+  addOptions() {
+    return {
+      types: ['paragraph', 'heading'],
+      defaultIndent: '2em',
+    };
+  },
+
+  addGlobalAttributes() {
+    return [
+      {
+        types: this.options.types,
+        attributes: {
+          textIndent: {
+            default: null,
+            parseHTML: element => element.style.textIndent || null,
+            renderHTML: attributes => {
+              if (!attributes.textIndent) {
+                return {};
+              }
+              return {
+                style: `text-indent: ${attributes.textIndent}`,
+              };
+            },
+          },
+        },
+      },
+    ];
+  },
+
+  addCommands() {
+    return {
+      setTextIndent: (indent: string) => ({ commands }) => {
+        return this.options.types.every((type: string) => 
+          commands.updateAttributes(type, { textIndent: indent })
+        );
+      },
+      unsetTextIndent: () => ({ commands }) => {
+        return this.options.types.every((type: string) => 
+          commands.updateAttributes(type, { textIndent: null })
+        );
+      },
+    };
+  },
+});
+
 // Extend module types for custom commands
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     fontSize: {
       setFontSize: (fontSize: string) => ReturnType;
       unsetFontSize: () => ReturnType;
+    };
+    textIndent: {
+      setTextIndent: (indent: string) => ReturnType;
+      unsetTextIndent: () => ReturnType;
     };
   }
 }
@@ -142,6 +197,7 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
         Placeholder.configure({
           placeholder,
         }),
+        TextIndent,
       ],
       content,
       immediatelyRender: false, // Prevents duplicate extension warning in React 18 Strict Mode
@@ -257,6 +313,12 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
         if (editor?.isActive('listItem')) {
           editor?.chain().focus().liftListItem('listItem').run();
         }
+      },
+      setTextIndent: (indent: string) => {
+        editor?.chain().focus().setTextIndent(indent).run();
+      },
+      unsetTextIndent: () => {
+        editor?.chain().focus().unsetTextIndent().run();
       },
     }), [editor]);
 

@@ -503,6 +503,23 @@ function applyFormatting(editor: TiptapEditorHandle, action: FormatAction): bool
         editor.setLink(action.value);
       }
       break;
+    case 'textindent':
+    case 'text-indent':
+    case 'indent':
+    case 'firstlineindent':
+    case 'first-line-indent':
+      if (action.value) {
+        editor.setTextIndent(action.value);
+      } else {
+        // Default indent is 2em (roughly two character widths, like a tab)
+        editor.setTextIndent('2em');
+      }
+      break;
+    case 'removeindent':
+    case 'remove-indent':
+    case 'unindent':
+      editor.unsetTextIndent();
+      break;
     default:
       console.warn('Unknown format type:', action.type);
       return false;
@@ -562,6 +579,7 @@ CRITICAL: You MUST respond using this exact structured format with XML-like tags
 - highlight (with value for background color)
 - fontSize (with value like "14pt" or "18")
 - fontFamily (with value like "Arial" or "Times New Roman")
+- textIndent (with value like "2em" for essay-style first-line paragraph indentation; default "2em" if no value)
 
 **Headings:**
 - h1, h2, h3, h4, h5, h6 (for different heading levels)
@@ -601,6 +619,9 @@ CRITICAL: You MUST respond using this exact structured format with XML-like tags
 
 **Multiple formatting actions:**
 <chat>Made 'dogs' red and bold.</chat><format type="bold" target="dogs"/><format type="textColor" target="dogs" value="#ff0000"/>
+
+**Adding essay-style paragraph indentation (tabs):**
+<chat>Added first-line indentation to all paragraphs.</chat><format type="textIndent" target="all"/>
 
 **Editing existing text:**
 <chat>Fixed that for you.</chat><edit find="thousands of years">millennia</edit>
