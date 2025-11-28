@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_WORKER_URL || '/api/chat';
+const API_URL = '/api/chat';
 const DEFAULT_MODEL = 'x-ai/grok-4.1-fast:free';
 
 export interface ModelInfo {
