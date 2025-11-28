@@ -1,6 +1,6 @@
 const API_KEY = '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';
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = 'nvidia/nemotron-nano-9b-v2:free';
+const MODEL = 'tngtech/tng-r1t-chimera:free';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
