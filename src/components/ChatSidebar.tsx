@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import type { Document } from '../hooks/useDocuments';
+import type { Document, ChatMode } from '../hooks/useDocuments';
 import { AVAILABLE_MODELS } from '../api/openrouter';
 import { parseFile, isValidFileType, getAcceptedFileTypes, type ParsedFile } from '../utils/fileParser';
 
@@ -10,9 +10,11 @@ interface ChatSidebarProps {
   isWritingToDoc: boolean;
   selectedModel: string;
   onModelChange: (model: string) => void;
+  chatMode: ChatMode;
+  onModeChange: (mode: ChatMode) => void;
   isOpen: boolean;
   onClose: () => void;
-  onSendMessage: (text: string) => void;
+  onSendMessage: (text: string, mode: ChatMode) => void;
   onStopGeneration: () => void;
   onCreateDocument: (title?: string) => void;
   onSwitchDocument: (docId: string) => void;
@@ -24,6 +26,8 @@ export default function ChatSidebar({
   isLoading,
   selectedModel,
   onModelChange,
+  chatMode,
+  onModeChange,
   isOpen,
   onClose,
   onSendMessage,
@@ -153,7 +157,7 @@ export default function ChatSidebar({
         }
       }
       
-      onSendMessage(message);
+      onSendMessage(message, chatMode);
       setChatInput('');
       setAttachedFiles([]);
     }
@@ -314,30 +318,84 @@ export default function ChatSidebar({
               </div>
             )}
           </div>
-          <button 
-            className="w-8 h-8 border-none bg-transparent rounded-full cursor-pointer flex items-center justify-center text-gray-500 transition-colors hover:bg-gray-200"
-            onClick={onClose}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
+          
+          {/* Mode Toggle */}
+          <div className="flex items-center gap-1">
+            <div className="flex items-center bg-gray-200 rounded-full p-0.5">
+              <button
+                type="button"
+                onClick={() => onModeChange('chat')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                  chatMode === 'chat' 
+                    ? 'bg-white text-gray-800 shadow-sm' 
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+                title="Chat mode - discuss without editing"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+                Chat
+              </button>
+              <button
+                type="button"
+                onClick={() => onModeChange('edit')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                  chatMode === 'edit' 
+                    ? 'bg-white text-green-700 shadow-sm' 
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+                title="Edit mode - AI can modify document"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Edit
+              </button>
+            </div>
+            
+            <button 
+              className="w-8 h-8 border-none bg-transparent rounded-full cursor-pointer flex items-center justify-center text-gray-500 transition-colors hover:bg-gray-200"
+              onClick={onClose}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3" ref={chatMessagesRef}>
           {chatMessages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 px-6">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" strokeWidth="1.5" className="mb-4 opacity-50">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-              </svg>
-              <p className="text-[13px] leading-relaxed max-w-[240px]">Ask me to write, edit, or improve your document. I'll make changes directly in the editor.</p>
-              <div className="flex flex-wrap gap-2 mt-4 justify-center">
-                <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-blue-100">"Write an essay about..."</span>
-                <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-blue-100">"Make it bold"</span>
-                <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-blue-100">"Change color to blue"</span>
-                <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-blue-100">"Make the intro shorter"</span>
-              </div>
+              {chatMode === 'edit' ? (
+                <>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" strokeWidth="1.5" className="mb-4 opacity-50">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                  <p className="text-[13px] leading-relaxed max-w-[240px]">Ask me to write, edit, or improve your document. I'll make changes directly in the editor.</p>
+                  <div className="flex flex-wrap gap-2 mt-4 justify-center">
+                    <span className="bg-green-50 text-green-700 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-green-100">"Write an essay about..."</span>
+                    <span className="bg-green-50 text-green-700 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-green-100">"Make it bold"</span>
+                    <span className="bg-green-50 text-green-700 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-green-100">"Change color to blue"</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" strokeWidth="1.5" className="mb-4 opacity-50">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                  <p className="text-[13px] leading-relaxed max-w-[240px]">Chat about your document without making changes. Ask questions, get feedback, or brainstorm ideas.</p>
+                  <div className="flex flex-wrap gap-2 mt-4 justify-center">
+                    <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-blue-100">"What do you think?"</span>
+                    <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-blue-100">"How can I improve this?"</span>
+                    <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-blue-100">"Is this clear?"</span>
+                  </div>
+                </>
+              )}
             </div>
           )}
           {chatMessages.map((msg) => (
@@ -446,7 +504,13 @@ export default function ChatSidebar({
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               onKeyDown={handleChatKeyDown}
-              placeholder={attachedFiles.length > 0 ? "Add instructions or just send..." : "Ask AI to write or edit..."}
+              placeholder={
+                attachedFiles.length > 0 
+                  ? "Add instructions or just send..." 
+                  : chatMode === 'edit' 
+                    ? "Ask AI to write or edit..." 
+                    : "Chat about your document..."
+              }
               rows={1}
               disabled={isLoading}
               className="flex-1 border border-gray-300 rounded-2xl px-4 py-2.5 text-sm font-[inherit] resize-none outline-none max-h-[120px] leading-snug transition-colors text-black bg-white focus:border-blue-600 placeholder:text-gray-400"

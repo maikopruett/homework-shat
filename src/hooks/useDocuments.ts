@@ -559,14 +559,17 @@ CRITICAL: You MUST respond using this exact structured format with XML-like tags
 
 ## Available Actions:
 
-### 1. Writing NEW content:
-<chat>Brief acknowledgment</chat><write>Content to add to document</write>
+### 1. APPENDING new content (adds to end of document):
+<chat>Brief acknowledgment</chat><write>Content to ADD to document</write>
+NOTE: <write> only APPENDS. Use this for empty documents or adding new sections.
 
-### 2. EDITING/Replacing existing content:
+### 2. EDITING specific text (find and replace):
 <chat>Brief acknowledgment</chat><edit find="exact text to find">Replacement text</edit>
+NOTE: Use this for small, targeted changes to existing content.
 
-### 3. CLEARING the document (to start fresh):
-<chat>Brief acknowledgment</chat><clear/><write>New content</write>
+### 3. REWRITING the entire document (clear and replace):
+<chat>Brief acknowledgment</chat><clear/><write>Complete new content</write>
+NOTE: ALWAYS use <clear/> first when rewriting, improving, or creating a new version of existing content. This prevents duplicate content.
 
 ### 4. FORMATTING text (bold, italic, colors, headings, lists, etc.):
 <chat>Brief acknowledgment</chat><format type="TYPE" target="TARGET" value="VALUE"/>
@@ -637,6 +640,16 @@ CRITICAL: You MUST respond using this exact structured format with XML-like tags
 8. Sound human. Be direct, skip the pleasantries, and don't over-explain.
 9. NEVER use markdown syntax (# ## * ** _ etc.) in <write> content. Write plain text, then use <format> tags for styling.
 
+## CRITICAL - Append vs Replace:
+- <write> ONLY APPENDS content to the end of the document. It NEVER replaces existing content.
+- If the document already has content and you need to REWRITE or CREATE A NEW VERSION, you MUST use <clear/> first: <clear/><write>new content</write>
+- Use <edit find="..."> for small targeted changes to specific text
+- Use <clear/><write> for complete rewrites, new versions, or when asked to "redo", "rewrite", "make it better", "turn it into", etc.
+- NEVER append a new version below the old one. Either edit specific parts OR clear and rewrite.
+
+Example - Rewriting an essay:
+<chat>Here's the improved version.</chat><clear/><write>New essay content here...</write>
+
 ## Example - Writing an Essay with Headings:
 <chat>Here's your essay.</chat><write>The Remarkable World of Turtles
 
@@ -649,6 +662,43 @@ Biology of Turtles
 Turtles possess remarkable anatomy...</write><format type="h1" target="The Remarkable World of Turtles"/><format type="h2" target="Introduction"/><format type="h2" target="Biology of Turtles"/>
 
 Notice: headings are written as plain text, then formatted with <format type="h1"> or <format type="h2"> tags.`;
+
+const CHAT_MODE_SYSTEM_PROMPT = `You are a writing assistant helping a user with their document. You can see the document content and discuss it with the user, but you CANNOT edit it directly in this mode.
+
+## How to Sound Human (IMPORTANT)
+
+Your goal is to be helpful and accurate, but equally important: sound like a real person. Avoid robotic AI patterns.
+
+**Do this:**
+- Be casual and conversational. Use contractions (it's, you're, don't, I'm). Write like you're talking.
+- Be direct. Skip the filler preamble. Don't say "Great question!" or "The phenomenon you're asking about..." Just answer.
+- Use specific examples. Inject yourself with first-person framing when it adds context.
+- Make natural connections. If a relevant tangent comes up, include it.
+- Be sincere. If you compliment something, make it specific and genuine.
+
+**Don't do this:**
+- NO jargon or empty words: avoid "elevate," "delve," "innovative," "captivating," "streamline," "leverage"
+- NO m-dashes (—). Use hyphens (-) or rephrase instead.
+- NO "It's not just about X, it's about Y" structures.
+- NO unnecessary lists of three. Vary your list lengths or integrate points into paragraphs.
+- NO weird forced analogies. If a comparison isn't immediately clear, skip it.
+- NO repeating yourself or over-clarifying. Trust the user to understand you.
+- NO saying a lot while meaning nothing. Every sentence should have substance.
+
+---
+
+In this CHAT MODE, you can:
+- Answer questions about the document
+- Provide feedback and suggestions
+- Discuss ideas and brainstorm
+- Explain concepts related to the writing
+- Help plan or outline content
+
+You CANNOT directly edit the document in this mode. If the user wants you to make changes, suggest they switch to Edit mode.
+
+Respond naturally without any special tags or formatting. Just have a normal conversation.`;
+
+export type ChatMode = 'chat' | 'edit';
 
 export function useDocuments() {
   const [documents, setDocuments] = useState<Document[]>(() => {
@@ -741,9 +791,57 @@ export function useDocuments() {
     });
   }, [activeDocId]);
 
+  // Generate a title from user's message (max 5 words)
+  const generateTitleFromMessage = useCallback((message: string): string => {
+    // Clean up the message
+    let title = message.trim();
+    
+    // Remove common prefixes like "write me", "help me with", etc.
+    const prefixPatterns = [
+      /^(please\s+)?write\s+(me\s+)?(a\s+|an\s+)?/i,
+      /^(please\s+)?help\s+(me\s+)?(with\s+)?(a\s+|an\s+)?/i,
+      /^(please\s+)?create\s+(me\s+)?(a\s+|an\s+)?/i,
+      /^(please\s+)?make\s+(me\s+)?(a\s+|an\s+)?/i,
+      /^(please\s+)?draft\s+(me\s+)?(a\s+|an\s+)?/i,
+      /^(can\s+you\s+)?(please\s+)?/i,
+      /^i\s+need\s+(a\s+|an\s+)?/i,
+      /^i\s+want\s+(a\s+|an\s+)?/i,
+    ];
+    
+    for (const pattern of prefixPatterns) {
+      title = title.replace(pattern, '');
+    }
+    
+    // Remove punctuation and extra whitespace
+    title = title.replace(/[.!?,;:]+/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    // Take only the first 5 words
+    const words = title.split(' ').slice(0, 5);
+    title = words.join(' ');
+    
+    // Capitalize first letter
+    if (title.length > 0) {
+      title = title.charAt(0).toUpperCase() + title.slice(1);
+    }
+    
+    return title || 'Untitled document';
+  }, []);
+
   // Send a chat message with direct document editing capability
-  const sendMessage = useCallback(async (content: string, editorRef: React.RefObject<TiptapEditorHandle | null>) => {
+  const sendMessage = useCallback(async (content: string, editorRef: React.RefObject<TiptapEditorHandle | null>, mode: ChatMode = 'edit') => {
     if (!content.trim() || isLoading || !activeDocument) return;
+
+    // Auto-generate title if document is untitled and this is the first message
+    if (activeDocument.title === 'Untitled document' && activeDocument.chatMessages.length === 0) {
+      const generatedTitle = generateTitleFromMessage(content);
+      if (generatedTitle !== 'Untitled document') {
+        setDocuments(prev => prev.map(doc => 
+          doc.id === activeDocId 
+            ? { ...doc, title: generatedTitle, updatedAt: Date.now() }
+            : doc
+        ));
+      }
+    }
 
     // Store editor ref for use in callbacks
     editorRefStore.current = editorRef.current;
@@ -778,9 +876,10 @@ export function useDocuments() {
 
     // Include current document content in context
     const documentContext = editorRef.current?.getText() || activeDocument.content;
+    const basePrompt = mode === 'edit' ? SYSTEM_PROMPT : CHAT_MODE_SYSTEM_PROMPT;
     const systemMessage: ChatMessage = {
       role: 'system' as const,
-      content: `${SYSTEM_PROMPT}\n\nDocument Title: "${activeDocument.title}"\n\nCurrent Document Content:\n${documentContext || '(empty document)'}`,
+      content: `${basePrompt}\n\nDocument Title: "${activeDocument.title}"\n\nCurrent Document Content:\n${documentContext || '(empty document)'}`,
     };
 
     // Create placeholder for streaming message
@@ -803,126 +902,148 @@ export function useDocuments() {
     // Create abort controller for this request
     abortControllerRef.current = new AbortController();
 
-    await sendMessageStream([systemMessage, ...chatHistory], {
-      onToken: (token) => {
-        parseContextRef.current = parseToken(parseContextRef.current, token, {
-          onChatToken: (char) => {
-            streamingChatRef.current += char;
-            setDocuments(prev => prev.map(doc => 
-              doc.id === activeDocId 
-                ? { 
-                    ...doc, 
-                    chatMessages: doc.chatMessages.map(m => 
-                      m.id === assistantId 
-                        ? { ...m, content: streamingChatRef.current }
-                        : m
-                    ),
-                    updatedAt: Date.now() 
-                  }
-                : doc
-            ));
-          },
-          onWriteStart: () => {
-            setIsWritingToDoc(true);
-            setDocuments(prev => prev.map(doc => 
-              doc.id === activeDocId 
-                ? { 
-                    ...doc, 
-                    chatMessages: doc.chatMessages.map(m => 
-                      m.id === assistantId 
-                        ? { ...m, isWriting: true }
-                        : m
-                    ),
-                    updatedAt: Date.now() 
-                  }
-                : doc
-            ));
-          },
-          onWriteComplete: (writeContent) => {
-            if (editorRefStore.current) {
-              // Convert text to HTML and insert it all at once
-              const htmlContent = textToHtml(writeContent);
-              editorRefStore.current.insertContent(htmlContent);
-            }
-          },
-          onEditStart: (findText) => {
-            setIsWritingToDoc(true);
-            setDocuments(prev => prev.map(doc => 
-              doc.id === activeDocId 
-                ? { 
-                    ...doc, 
-                    chatMessages: doc.chatMessages.map(m => 
-                      m.id === assistantId 
-                        ? { ...m, isWriting: true }
-                        : m
-                    ),
-                    updatedAt: Date.now() 
-                  }
-                : doc
-            ));
-            
-            // Find and delete the text using Tiptap
-            if (editorRefStore.current && !editTargetRemoved) {
-              const editor = editorRefStore.current.getEditor();
-              if (editor) {
-                const doc = editor.state.doc;
-                const result = findTextInDocument(doc, findText);
-                
-                if (result) {
-                  editor.chain().focus().setTextSelection({ from: result.from, to: result.to }).deleteSelection().run();
+    // Handler for streaming tokens based on mode
+    const handleToken = mode === 'chat' 
+      ? (token: string) => {
+          // Chat mode: just stream the response directly
+          streamingChatRef.current += token;
+          setDocuments(prev => prev.map(doc => 
+            doc.id === activeDocId 
+              ? { 
+                  ...doc, 
+                  chatMessages: doc.chatMessages.map(m => 
+                    m.id === assistantId 
+                      ? { ...m, content: streamingChatRef.current }
+                      : m
+                  ),
+                  updatedAt: Date.now() 
                 }
+              : doc
+          ));
+        }
+      : (token: string) => {
+          // Edit mode: parse for document editing tags
+          parseContextRef.current = parseToken(parseContextRef.current, token, {
+            onChatToken: (char) => {
+              streamingChatRef.current += char;
+              setDocuments(prev => prev.map(doc => 
+                doc.id === activeDocId 
+                  ? { 
+                      ...doc, 
+                      chatMessages: doc.chatMessages.map(m => 
+                        m.id === assistantId 
+                          ? { ...m, content: streamingChatRef.current }
+                          : m
+                      ),
+                      updatedAt: Date.now() 
+                    }
+                  : doc
+              ));
+            },
+            onWriteStart: () => {
+              setIsWritingToDoc(true);
+              setDocuments(prev => prev.map(doc => 
+                doc.id === activeDocId 
+                  ? { 
+                      ...doc, 
+                      chatMessages: doc.chatMessages.map(m => 
+                        m.id === assistantId 
+                          ? { ...m, isWriting: true }
+                          : m
+                      ),
+                      updatedAt: Date.now() 
+                    }
+                  : doc
+              ));
+            },
+            onWriteComplete: (writeContent) => {
+              if (editorRefStore.current) {
+                // Convert text to HTML and insert it all at once
+                const htmlContent = textToHtml(writeContent);
+                editorRefStore.current.insertContent(htmlContent);
               }
-              editTargetRemoved = true;
-            }
-          },
-          onEditComplete: (editContent) => {
-            if (editorRefStore.current) {
-              // Insert the replacement content at the edit position
-              editorRefStore.current.insertContent(editContent);
-            }
-          },
-          onFormat: (action) => {
-            setIsWritingToDoc(true);
-            setDocuments(prev => prev.map(doc => 
-              doc.id === activeDocId 
-                ? { 
-                    ...doc, 
-                    chatMessages: doc.chatMessages.map(m => 
-                      m.id === assistantId 
-                        ? { ...m, isWriting: true }
-                        : m
-                    ),
-                    updatedAt: Date.now() 
+            },
+            onEditStart: (findText) => {
+              setIsWritingToDoc(true);
+              setDocuments(prev => prev.map(doc => 
+                doc.id === activeDocId 
+                  ? { 
+                      ...doc, 
+                      chatMessages: doc.chatMessages.map(m => 
+                        m.id === assistantId 
+                          ? { ...m, isWriting: true }
+                          : m
+                      ),
+                      updatedAt: Date.now() 
+                    }
+                  : doc
+              ));
+              
+              // Find and delete the text using Tiptap
+              if (editorRefStore.current && !editTargetRemoved) {
+                const editor = editorRefStore.current.getEditor();
+                if (editor) {
+                  const doc = editor.state.doc;
+                  const result = findTextInDocument(doc, findText);
+                  
+                  if (result) {
+                    editor.chain().focus().setTextSelection({ from: result.from, to: result.to }).deleteSelection().run();
                   }
-                : doc
-            ));
-            
-            if (editorRefStore.current) {
-              applyFormatting(editorRefStore.current, action);
-            }
-          },
-          onClear: () => {
-            setIsWritingToDoc(true);
-            setDocuments(prev => prev.map(doc => 
-              doc.id === activeDocId 
-                ? { 
-                    ...doc, 
-                    chatMessages: doc.chatMessages.map(m => 
-                      m.id === assistantId 
-                        ? { ...m, isWriting: true }
-                        : m
-                    ),
-                    updatedAt: Date.now() 
-                  }
-                : doc
-            ));
-            
-            if (editorRefStore.current) {
-              editorRefStore.current.clearContent();
-            }
-          },
-        });
-      },
+                }
+                editTargetRemoved = true;
+              }
+            },
+            onEditComplete: (editContent) => {
+              if (editorRefStore.current) {
+                // Insert the replacement content at the edit position
+                editorRefStore.current.insertContent(editContent);
+              }
+            },
+            onFormat: (action) => {
+              setIsWritingToDoc(true);
+              setDocuments(prev => prev.map(doc => 
+                doc.id === activeDocId 
+                  ? { 
+                      ...doc, 
+                      chatMessages: doc.chatMessages.map(m => 
+                        m.id === assistantId 
+                          ? { ...m, isWriting: true }
+                          : m
+                      ),
+                      updatedAt: Date.now() 
+                    }
+                  : doc
+              ));
+              
+              if (editorRefStore.current) {
+                applyFormatting(editorRefStore.current, action);
+              }
+            },
+            onClear: () => {
+              setIsWritingToDoc(true);
+              setDocuments(prev => prev.map(doc => 
+                doc.id === activeDocId 
+                  ? { 
+                      ...doc, 
+                      chatMessages: doc.chatMessages.map(m => 
+                        m.id === assistantId 
+                          ? { ...m, isWriting: true }
+                          : m
+                      ),
+                      updatedAt: Date.now() 
+                    }
+                  : doc
+              ));
+              
+              if (editorRefStore.current) {
+                editorRefStore.current.clearContent();
+              }
+            },
+          });
+        };
+
+    await sendMessageStream([systemMessage, ...chatHistory], {
+      onToken: handleToken,
       onComplete: () => {
         // Save final document content
         if (editorRefStore.current) {

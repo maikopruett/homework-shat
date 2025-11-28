@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import type { Document } from '../hooks/useDocuments';
+import type { Document, ChatMode } from '../hooks/useDocuments';
 import ChatSidebar from './ChatSidebar';
 import TiptapEditor, { type TiptapEditorHandle } from './TiptapEditor';
 
@@ -10,7 +10,7 @@ interface GoogleDocsUIProps {
   isWritingToDoc: boolean;
   selectedModel: string;
   onModelChange: (model: string) => void;
-  onSendMessage: (text: string, editorRef: React.RefObject<TiptapEditorHandle | null>) => void;
+  onSendMessage: (text: string, editorRef: React.RefObject<TiptapEditorHandle | null>, mode: ChatMode) => void;
   onStopGeneration: () => void;
   onCreateDocument: (title?: string) => void;
   onSwitchDocument: (docId: string) => void;
@@ -72,6 +72,7 @@ export default function GoogleDocsUI({
 }: GoogleDocsUIProps) {
   const editorRef = useRef<TiptapEditorHandle>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatMode, setChatMode] = useState<ChatMode>('edit');
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const fileMenuRef = useRef<HTMLDivElement>(null);
@@ -437,8 +438,8 @@ ${html}
   };
 
   // Handle sending message with editor ref
-  const handleSendMessage = useCallback((text: string) => {
-    onSendMessage(text, editorRef);
+  const handleSendMessage = useCallback((text: string, mode: ChatMode) => {
+    onSendMessage(text, editorRef, mode);
   }, [onSendMessage]);
 
   // Handle keyboard shortcuts
@@ -1284,6 +1285,8 @@ ${html}
           isWritingToDoc={isWritingToDoc}
           selectedModel={selectedModel}
           onModelChange={onModelChange}
+          chatMode={chatMode}
+          onModeChange={setChatMode}
           isOpen={chatOpen}
           onClose={() => setChatOpen(false)}
           onSendMessage={handleSendMessage}
