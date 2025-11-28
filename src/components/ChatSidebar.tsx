@@ -36,21 +36,26 @@ export default function ChatSidebar({
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [chatInput, setChatInput] = useState('');
   const [showDocList, setShowDocList] = useState(true);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<ParsedFile[]>([]);
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const dragCounter = useRef(0);
 
-  // Close model menu when clicking outside
+  // Close menus when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
         setModelMenuOpen(false);
+      }
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(e.target as Node)) {
+        setToolsMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -485,7 +490,7 @@ export default function ChatSidebar({
             </div>
           )}
 
-          <form className="flex items-end gap-2 px-4 py-3" onSubmit={handleChatSubmit}>
+          <form className="flex items-center gap-2 px-3 py-3" onSubmit={handleChatSubmit}>
             {/* Hidden file input */}
             <input
               ref={fileInputRef}
@@ -496,56 +501,86 @@ export default function ChatSidebar({
               multiple
             />
             
-            {/* Attach file button */}
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isLoading || isParsingFile}
-              className="w-10 h-10 border border-gray-300 bg-white rounded-full cursor-pointer flex items-center justify-center text-gray-500 transition-all flex-shrink-0 hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Attach requirements file (.docx, .pdf, .txt)"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-              </svg>
-            </button>
-
-            <textarea
-              ref={chatInputRef}
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={handleChatKeyDown}
-              placeholder={
-                attachedFiles.length > 0 
-                  ? "Add instructions or just send..." 
-                  : chatMode === 'edit' 
-                    ? "Ask AI to write or edit..." 
-                    : "Chat about your document..."
-              }
-              rows={1}
-              disabled={isLoading}
-              className="flex-1 border border-gray-300 rounded-2xl px-4 py-2.5 text-sm font-[inherit] resize-none outline-none max-h-[120px] leading-snug transition-colors text-black bg-white focus:border-blue-600 placeholder:text-gray-400"
-            />
-            {isLoading ? (
-              <button 
+            {/* Tools menu button */}
+            <div className="relative" ref={toolsMenuRef}>
+              <button
                 type="button"
-                onClick={onStopGeneration}
-                className="w-10 h-10 border-none bg-red-500 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-red-600"
+                onClick={() => setToolsMenuOpen(!toolsMenuOpen)}
+                disabled={isLoading}
+                className={`w-9 h-9 border border-gray-300 rounded-full cursor-pointer flex items-center justify-center transition-all flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  toolsMenuOpen 
+                    ? 'bg-gray-200 text-gray-700 rotate-45' 
+                    : 'bg-white text-gray-500 hover:bg-gray-50 hover:border-gray-400'
+                }`}
+                title="Tools"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5" y1="12" x2="19" y2="12"/>
                 </svg>
               </button>
-            ) : (
-              <button 
-                type="submit" 
-                disabled={!chatInput.trim() && attachedFiles.length === 0}
-                className="w-10 h-10 border-none bg-blue-600 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-                </svg>
-              </button>
-            )}
+              
+              {/* Tools menu popup */}
+              {toolsMenuOpen && (
+                <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.15),_0_0_0_1px_rgba(0,0,0,0.05)] min-w-[180px] py-2 z-[1000] animate-[dropdown-in_0.15s_ease]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      fileInputRef.current?.click();
+                      setToolsMenuOpen(false);
+                    }}
+                    disabled={isParsingFile}
+                    className="flex items-center gap-3 w-full px-4 py-2.5 border-none bg-transparent text-left cursor-pointer transition-colors hover:bg-gray-100 text-gray-700 text-sm disabled:opacity-50"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                    </svg>
+                    Attach file
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Input container with embedded send button */}
+            <div className="flex-1 flex items-center border border-gray-300 rounded-3xl pl-4 pr-1.5 py-1.5 bg-white transition-colors focus-within:border-blue-600">
+              <textarea
+                ref={chatInputRef}
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={handleChatKeyDown}
+                placeholder={
+                  attachedFiles.length > 0 
+                    ? "Add instructions or just send..." 
+                    : chatMode === 'edit' 
+                      ? "Ask AI to write or edit..." 
+                      : "Chat about your document..."
+                }
+                rows={1}
+                disabled={isLoading}
+                className="flex-1 border-none bg-transparent text-sm font-[inherit] resize-none outline-none max-h-[100px] leading-snug text-black placeholder:text-gray-400 py-1"
+              />
+              {isLoading ? (
+                <button 
+                  type="button"
+                  onClick={onStopGeneration}
+                  className="w-8 h-8 border-none bg-red-500 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-red-600 ml-2"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                </button>
+              ) : (
+                <button 
+                  type="submit" 
+                  disabled={!chatInput.trim() && attachedFiles.length === 0}
+                  className="w-8 h-8 border-none bg-blue-600 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed ml-2"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 19V5M5 12l7-7 7 7"/>
+                  </svg>
+                </button>
+              )}
+            </div>
           </form>
         </div>
     </div>
