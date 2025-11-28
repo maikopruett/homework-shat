@@ -28,6 +28,11 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   
+  // Only handle http/https requests - skip chrome-extension, etc.
+  if (!request.url.startsWith('http')) {
+    return;
+  }
+  
   // Network-first for API calls
   if (request.url.includes('openrouter.ai')) {
     event.respondWith(fetch(request));
