@@ -46,7 +46,7 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
       headers: {
         'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': request.headers.get('Origin') || 'https://homework-shat.pages.dev',
+        'HTTP-Referer': request.headers.get('Origin') || 'https://docfake.com',
         'X-Title': 'Homework Helper',
       },
       body,
