@@ -1,13 +1,14 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import type { Document } from '../hooks/useDocuments';
 import ChatSidebar from './ChatSidebar';
+import TiptapEditor, { type TiptapEditorHandle } from './TiptapEditor';
 
 interface GoogleDocsUIProps {
   documents: Document[];
   activeDocument: Document | undefined;
   isLoading: boolean;
   isWritingToDoc: boolean;
-  onSendMessage: (text: string, editorRef: React.RefObject<HTMLDivElement | null>) => void;
+  onSendMessage: (text: string, editorRef: React.RefObject<TiptapEditorHandle | null>) => void;
   onCreateDocument: (title?: string) => void;
   onSwitchDocument: (docId: string) => void;
   onUpdateTitle: (docId: string, title: string) => void;
@@ -25,6 +26,16 @@ const FONTS = [
   'Comic Sans MS',
   'Impact',
   'Trebuchet MS',
+];
+
+const HEADING_OPTIONS = [
+  { label: 'Normal text', value: 'paragraph' },
+  { label: 'Heading 1', value: 'h1' },
+  { label: 'Heading 2', value: 'h2' },
+  { label: 'Heading 3', value: 'h3' },
+  { label: 'Heading 4', value: 'h4' },
+  { label: 'Heading 5', value: 'h5' },
+  { label: 'Heading 6', value: 'h6' },
 ];
 
 const TEXT_COLORS = [
@@ -53,7 +64,7 @@ export default function GoogleDocsUI({
   onUpdateContent,
   onDeleteDocument,
 }: GoogleDocsUIProps) {
-  const editorRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<TiptapEditorHandle>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const fileMenuRef = useRef<HTMLDivElement>(null);
@@ -61,27 +72,17 @@ export default function GoogleDocsUI({
   // Toolbar state
   const [fontSize, setFontSize] = useState(11);
   const [fontFamily, setFontFamily] = useState('Arial');
+  const [headingStyle, setHeadingStyle] = useState('paragraph');
   const [textColorOpen, setTextColorOpen] = useState(false);
   const [highlightColorOpen, setHighlightColorOpen] = useState(false);
   const [currentTextColor, setCurrentTextColor] = useState('#000000');
   const [currentHighlightColor, setCurrentHighlightColor] = useState('#ffff00');
   const [alignMenuOpen, setAlignMenuOpen] = useState(false);
+  const [headingMenuOpen, setHeadingMenuOpen] = useState(false);
   const textColorRef = useRef<HTMLDivElement>(null);
   const highlightColorRef = useRef<HTMLDivElement>(null);
   const alignMenuRef = useRef<HTMLDivElement>(null);
-
-  // Load document content when switching documents
-  useEffect(() => {
-    if (editorRef.current && activeDocument) {
-      editorRef.current.innerHTML = activeDocument.content;
-    }
-  }, [activeDocument?.id]);
-
-  useEffect(() => {
-    if (editorRef.current && !activeDocument?.content) {
-      editorRef.current.focus();
-    }
-  }, []);
+  const headingMenuRef = useRef<HTMLDivElement>(null);
 
   // Close menus when clicking outside
   useEffect(() => {
@@ -98,6 +99,9 @@ export default function GoogleDocsUI({
       if (alignMenuRef.current && !alignMenuRef.current.contains(e.target as Node)) {
         setAlignMenuOpen(false);
       }
+      if (headingMenuRef.current && !headingMenuRef.current.contains(e.target as Node)) {
+        setHeadingMenuOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -106,56 +110,41 @@ export default function GoogleDocsUI({
   // Save content helper
   const saveContent = useCallback(() => {
     if (editorRef.current && activeDocument) {
-      onUpdateContent(activeDocument.id, editorRef.current.innerHTML);
+      onUpdateContent(activeDocument.id, editorRef.current.getHTML());
     }
   }, [activeDocument, onUpdateContent]);
 
-  // Save content on blur
-  const handleEditorBlur = () => {
-    saveContent();
-  };
+  // Handle editor content update
+  const handleEditorUpdate = useCallback((html: string) => {
+    if (activeDocument) {
+      onUpdateContent(activeDocument.id, html);
+    }
+  }, [activeDocument, onUpdateContent]);
 
-  // Execute formatting command
-  const execCommand = useCallback((command: string, value?: string) => {
-    editorRef.current?.focus();
-    document.execCommand(command, false, value);
-    saveContent();
-  }, [saveContent]);
-
-  // Toolbar actions
-  const handleBold = () => execCommand('bold');
-  const handleItalic = () => execCommand('italic');
-  const handleUnderline = () => execCommand('underline');
-  const handleStrikethrough = () => execCommand('strikeThrough');
+  // Toolbar actions using Tiptap
+  const handleBold = () => editorRef.current?.toggleBold();
+  const handleItalic = () => editorRef.current?.toggleItalic();
+  const handleUnderline = () => editorRef.current?.toggleUnderline();
+  const handleStrikethrough = () => editorRef.current?.toggleStrike();
   
-  const handleUndo = () => execCommand('undo');
-  const handleRedo = () => execCommand('redo');
+  const handleUndo = () => editorRef.current?.undo();
+  const handleRedo = () => editorRef.current?.redo();
   
   const handleTextColor = (color: string) => {
     setCurrentTextColor(color);
-    execCommand('foreColor', color);
+    editorRef.current?.setTextColor(color);
     setTextColorOpen(false);
   };
   
   const handleHighlightColor = (color: string) => {
     setCurrentHighlightColor(color);
-    execCommand('hiliteColor', color);
+    editorRef.current?.setHighlight(color);
     setHighlightColorOpen(false);
   };
   
   const handleFontSize = (size: number) => {
     setFontSize(size);
-    // execCommand fontSize only accepts 1-7, so we use a different approach
-    const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0);
-      if (!range.collapsed) {
-        const span = document.createElement('span');
-        span.style.fontSize = `${size}pt`;
-        range.surroundContents(span);
-        saveContent();
-      }
-    }
+    editorRef.current?.setFontSize(`${size}pt`);
   };
   
   const handleFontSizeIncrease = () => {
@@ -174,24 +163,41 @@ export default function GoogleDocsUI({
   
   const handleFontFamily = (font: string) => {
     setFontFamily(font);
-    execCommand('fontName', font);
+    editorRef.current?.setFontFamily(font);
+  };
+
+  const handleHeadingChange = (value: string) => {
+    setHeadingStyle(value);
+    if (value === 'paragraph') {
+      editorRef.current?.setParagraph();
+    } else {
+      const level = parseInt(value.replace('h', '')) as 1 | 2 | 3 | 4 | 5 | 6;
+      editorRef.current?.setHeading(level);
+    }
+    setHeadingMenuOpen(false);
   };
   
   const handleAlign = (alignment: string) => {
-    execCommand(alignment);
+    const alignMap: Record<string, 'left' | 'center' | 'right' | 'justify'> = {
+      'justifyLeft': 'left',
+      'justifyCenter': 'center',
+      'justifyRight': 'right',
+      'justifyFull': 'justify',
+    };
+    editorRef.current?.setTextAlign(alignMap[alignment] || 'left');
     setAlignMenuOpen(false);
   };
   
-  const handleBulletList = () => execCommand('insertUnorderedList');
-  const handleNumberedList = () => execCommand('insertOrderedList');
-  const handleIndent = () => execCommand('indent');
-  const handleOutdent = () => execCommand('outdent');
-  const handleClearFormatting = () => execCommand('removeFormat');
+  const handleBulletList = () => editorRef.current?.toggleBulletList();
+  const handleNumberedList = () => editorRef.current?.toggleOrderedList();
+  const handleIndent = () => editorRef.current?.indent();
+  const handleOutdent = () => editorRef.current?.outdent();
+  const handleClearFormatting = () => editorRef.current?.clearFormatting();
   
   const handleInsertLink = () => {
     const url = prompt('Enter URL:');
     if (url) {
-      execCommand('createLink', url);
+      editorRef.current?.setLink(url);
     }
   };
 
@@ -212,7 +218,7 @@ export default function GoogleDocsUI({
   }, [onSendMessage]);
 
   // Handle keyboard shortcuts
-  const handleEditorKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey) {
       switch (e.key.toLowerCase()) {
         case 'b':
@@ -239,7 +245,9 @@ export default function GoogleDocsUI({
           break;
       }
     }
-  };
+  }, []);
+
+  const currentHeadingLabel = HEADING_OPTIONS.find(h => h.value === headingStyle)?.label || 'Normal text';
 
   return (
     <div className="gdocs-container">
@@ -422,6 +430,36 @@ export default function GoogleDocsUI({
               <path d="M18 4V3c0-.55-.45-1-1-1H5c-.55 0-1 .45-1 1v4c0 .55.45 1 1 1h12c.55 0 1-.45 1-1V6h1v4H9v11c0 .55.45 1 1 1h2c.55 0 1-.45 1-1v-9h8V4h-3z"/>
             </svg>
           </button>
+        </div>
+
+        <div className="gdocs-toolbar-divider"></div>
+
+        {/* Heading/Style Selector */}
+        <div className="gdocs-toolbar-group">
+          <div className="gdocs-heading-wrapper" ref={headingMenuRef}>
+            <button 
+              className="gdocs-toolbar-select gdocs-heading-select"
+              onClick={() => setHeadingMenuOpen(!headingMenuOpen)}
+            >
+              <span>{currentHeadingLabel}</span>
+              <svg width="16" height="16" viewBox="0 0 20 20" className="gdocs-dropdown-arrow">
+                <path d="M10 12 6 8h8Z" fill="#444746"/>
+              </svg>
+            </button>
+            {headingMenuOpen && (
+              <div className="gdocs-heading-menu">
+                {HEADING_OPTIONS.map(option => (
+                  <button
+                    key={option.value}
+                    className={`gdocs-heading-option ${headingStyle === option.value ? 'active' : ''} gdocs-heading-${option.value}`}
+                    onClick={() => handleHeadingChange(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="gdocs-toolbar-divider"></div>
@@ -673,15 +711,14 @@ export default function GoogleDocsUI({
           </button>
 
           <div className="gdocs-pages-container">
-            <div className="gdocs-page">
-              <div
+            <div className="gdocs-page" onKeyDown={handleKeyDown}>
+              <TiptapEditor
                 ref={editorRef}
+                content={activeDocument?.content || ''}
+                onUpdate={handleEditorUpdate}
+                onBlur={saveContent}
+                placeholder="Start typing your document..."
                 className="gdocs-editor"
-                contentEditable
-                suppressContentEditableWarning
-                data-placeholder="Start typing your document..."
-                onBlur={handleEditorBlur}
-                onKeyDown={handleEditorKeyDown}
               />
               <div className="gdocs-page-number">1</div>
             </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { sendMessageStream } from '../api/openrouter';
 import type { ChatMessage } from '../api/openrouter';
+import type { TiptapEditorHandle } from '../components/TiptapEditor';
 
 export interface DocChatMessage {
   id: string;
@@ -203,141 +204,65 @@ function createNewDocument(title: string = 'Untitled document'): Document {
   };
 }
 
-// Helper to find and replace text in editor
-function findTextInEditor(editor: HTMLDivElement, searchText: string): { found: boolean; node?: Text; offset?: number } {
-  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
-  let fullText = '';
-  const nodes: { node: Text; start: number; end: number }[] = [];
-  
-  let node: Text | null;
-  while ((node = walker.nextNode() as Text | null)) {
-    const start = fullText.length;
-    fullText += node.textContent || '';
-    nodes.push({ node, start, end: fullText.length });
-  }
-  
-  const searchIndex = fullText.indexOf(searchText);
-  if (searchIndex === -1) {
-    return { found: false };
-  }
-  
-  for (const { node, start, end } of nodes) {
-    if (searchIndex >= start && searchIndex < end) {
-      return { found: true, node, offset: searchIndex - start };
-    }
-  }
-  
-  return { found: false };
-}
-
-// Remove text from editor starting at a position
-function removeTextFromEditor(editor: HTMLDivElement, searchText: string): boolean {
-  const result = findTextInEditor(editor, searchText);
-  if (!result.found || !result.node) return false;
-  
-  const fullContent = editor.innerHTML;
-  const textContent = editor.textContent || '';
-  const searchIndex = textContent.indexOf(searchText);
-  
-  if (searchIndex === -1) return false;
-  
-  const escapedSearch = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const newContent = fullContent.replace(new RegExp(escapedSearch.replace(/\s+/g, '\\s*')), '');
-  editor.innerHTML = newContent;
-  
-  return true;
-}
-
-// Select text in editor for formatting
-function selectTextInEditor(editor: HTMLDivElement, targetText: string): boolean {
-  const selection = window.getSelection();
-  if (!selection) return false;
-  
-  if (targetText === 'all') {
-    // Select all content
-    const range = document.createRange();
-    range.selectNodeContents(editor);
-    selection.removeAllRanges();
-    selection.addRange(range);
-    return true;
-  }
-  
-  // Find and select specific text
-  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
-  let fullText = '';
-  const nodes: { node: Text; start: number; end: number }[] = [];
-  
-  let node: Text | null;
-  while ((node = walker.nextNode() as Text | null)) {
-    const start = fullText.length;
-    fullText += node.textContent || '';
-    nodes.push({ node, start, end: fullText.length });
-  }
-  
-  const searchIndex = fullText.indexOf(targetText);
-  if (searchIndex === -1) return false;
-  
-  const searchEnd = searchIndex + targetText.length;
-  
-  // Find start node and offset
-  let startNode: Text | null = null;
-  let startOffset = 0;
-  let endNode: Text | null = null;
-  let endOffset = 0;
-  
-  for (const { node, start, end } of nodes) {
-    if (!startNode && searchIndex >= start && searchIndex < end) {
-      startNode = node;
-      startOffset = searchIndex - start;
-    }
-    if (searchEnd > start && searchEnd <= end) {
-      endNode = node;
-      endOffset = searchEnd - start;
-      break;
-    }
-  }
-  
-  if (!startNode || !endNode) return false;
-  
-  const range = document.createRange();
-  range.setStart(startNode, startOffset);
-  range.setEnd(endNode, endOffset);
-  selection.removeAllRanges();
-  selection.addRange(range);
-  
-  return true;
-}
-
-// Apply formatting to editor
-function applyFormatting(editor: HTMLDivElement, action: FormatAction): boolean {
-  // First, select the target text
-  const selected = selectTextInEditor(editor, action.target);
-  if (!selected) {
-    console.warn('Could not select text for formatting:', action.target);
+// Apply formatting using Tiptap editor API
+function applyFormatting(editor: TiptapEditorHandle, action: FormatAction): boolean {
+  const editorInstance = editor.getEditor();
+  if (!editorInstance) {
+    console.warn('Editor instance not available');
     return false;
   }
-  
-  editor.focus();
-  
+
+  // If target is specific text, we need to select it first
+  if (action.target !== 'all') {
+    const doc = editorInstance.state.doc;
+    let found = false;
+    let from = 0;
+    let to = 0;
+
+    doc.descendants((node, pos) => {
+      if (found) return false;
+      if (node.isText && node.text) {
+        const index = node.text.indexOf(action.target);
+        if (index !== -1) {
+          from = pos + index;
+          to = from + action.target.length;
+          found = true;
+          return false;
+        }
+      }
+    });
+
+    if (found) {
+      editorInstance.chain().focus().setTextSelection({ from, to }).run();
+    } else {
+      console.warn('Could not find text to format:', action.target);
+      return false;
+    }
+  } else {
+    // Select all content
+    editorInstance.chain().focus().selectAll().run();
+  }
+
   // Apply the formatting command
   switch (action.type) {
     case 'bold':
-      document.execCommand('bold', false);
+      editor.toggleBold();
       break;
     case 'italic':
-      document.execCommand('italic', false);
+      editor.toggleItalic();
       break;
     case 'underline':
-      document.execCommand('underline', false);
+      editor.toggleUnderline();
       break;
     case 'strikethrough':
-      document.execCommand('strikeThrough', false);
+    case 'strike':
+      editor.toggleStrike();
       break;
     case 'textcolor':
     case 'text-color':
     case 'color':
       if (action.value) {
-        document.execCommand('foreColor', false, action.value);
+        editor.setTextColor(action.value);
       }
       break;
     case 'highlight':
@@ -346,69 +271,106 @@ function applyFormatting(editor: HTMLDivElement, action: FormatAction): boolean 
     case 'backgroundcolor':
     case 'background-color':
       if (action.value) {
-        document.execCommand('hiliteColor', false, action.value);
+        editor.setHighlight(action.value);
       }
       break;
     case 'fontsize':
     case 'font-size':
       if (action.value) {
-        // execCommand fontSize only accepts 1-7, so we use a span wrapper
-        const selection = window.getSelection();
-        if (selection && selection.rangeCount > 0) {
-          const range = selection.getRangeAt(0);
-          if (!range.collapsed) {
-            const span = document.createElement('span');
-            span.style.fontSize = action.value.includes('pt') || action.value.includes('px') 
-              ? action.value 
-              : `${action.value}pt`;
-            range.surroundContents(span);
-          }
-        }
+        editor.setFontSize(action.value);
       }
       break;
     case 'fontfamily':
     case 'font-family':
     case 'font':
       if (action.value) {
-        document.execCommand('fontName', false, action.value);
+        editor.setFontFamily(action.value);
       }
+      break;
+    case 'heading':
+    case 'heading1':
+    case 'h1':
+      editor.setHeading(1);
+      break;
+    case 'heading2':
+    case 'h2':
+      editor.setHeading(2);
+      break;
+    case 'heading3':
+    case 'h3':
+      editor.setHeading(3);
+      break;
+    case 'heading4':
+    case 'h4':
+      editor.setHeading(4);
+      break;
+    case 'heading5':
+    case 'h5':
+      editor.setHeading(5);
+      break;
+    case 'heading6':
+    case 'h6':
+      editor.setHeading(6);
+      break;
+    case 'paragraph':
+    case 'normal':
+      editor.setParagraph();
+      break;
+    case 'bulletlist':
+    case 'bullet-list':
+    case 'bullets':
+      editor.toggleBulletList();
+      break;
+    case 'orderedlist':
+    case 'ordered-list':
+    case 'numbered':
+    case 'numberlist':
+    case 'number-list':
+      editor.toggleOrderedList();
+      break;
+    case 'blockquote':
+    case 'quote':
+      editor.toggleBlockquote();
+      break;
+    case 'codeblock':
+    case 'code-block':
+    case 'code':
+      editor.toggleCodeBlock();
+      break;
+    case 'horizontalrule':
+    case 'horizontal-rule':
+    case 'hr':
+    case 'divider':
+      editor.insertHorizontalRule();
       break;
     case 'align':
     case 'textalign':
     case 'text-align':
       if (action.value) {
-        const alignValue = action.value.toLowerCase();
-        if (alignValue === 'left') {
-          document.execCommand('justifyLeft', false);
-        } else if (alignValue === 'center') {
-          document.execCommand('justifyCenter', false);
-        } else if (alignValue === 'right') {
-          document.execCommand('justifyRight', false);
-        } else if (alignValue === 'justify') {
-          document.execCommand('justifyFull', false);
-        }
+        const alignValue = action.value.toLowerCase() as 'left' | 'center' | 'right' | 'justify';
+        editor.setTextAlign(alignValue);
       }
       break;
     case 'removeformat':
     case 'remove-format':
     case 'clearformat':
     case 'clear-format':
-      document.execCommand('removeFormat', false);
+    case 'clear':
+      editor.clearFormatting();
       break;
-    case 'subscript':
-      document.execCommand('subscript', false);
-      break;
-    case 'superscript':
-      document.execCommand('superscript', false);
+    case 'link':
+      if (action.value) {
+        editor.setLink(action.value);
+      }
       break;
     default:
       console.warn('Unknown format type:', action.type);
       return false;
   }
-  
+
   // Clear selection after formatting
-  window.getSelection()?.removeAllRanges();
-  
+  editorInstance.commands.focus('end');
+
   return true;
 }
 
@@ -424,37 +386,94 @@ CRITICAL: You MUST respond using this exact structured format with XML-like tags
 ### 2. EDITING/Replacing existing content:
 <chat>Brief acknowledgment</chat><edit find="exact text to find">Replacement text</edit>
 
-### 3. FORMATTING text (bold, italic, colors, etc.):
+### 3. FORMATTING text (bold, italic, colors, headings, lists, etc.):
 <chat>Brief acknowledgment</chat><format type="TYPE" target="TARGET" value="VALUE"/>
 
-Format types available:
+### Format Types Available:
+
+**Text Styling:**
 - bold, italic, underline, strikethrough
 - textColor (with value like "#ff0000" or "red")
 - highlight (with value for background color)
 - fontSize (with value like "14pt" or "18")
 - fontFamily (with value like "Arial" or "Times New Roman")
-- align (with value: "left", "center", "right", "justify")
-- removeFormat (clears all formatting)
 
-Target options:
+**Headings:**
+- h1, h2, h3, h4, h5, h6 (for different heading levels)
+- paragraph (to convert back to normal text)
+
+**Block Elements:**
+- bulletList (creates bulleted list)
+- orderedList (creates numbered list)
+- blockquote (creates a quote block)
+- codeBlock (creates a code block)
+- horizontalRule (inserts a horizontal divider)
+
+**Alignment:**
+- align (with value: "left", "center", "right", "justify")
+
+**Other:**
+- removeFormat (clears all formatting)
+- link (with value for the URL)
+
+### Target Options:
 - "all" - applies to entire document
 - Exact text string - applies to that specific text
 
 ## Writing Style Guidelines:
-When writing essays, articles, or longer content, ALWAYS structure it properly:
+When writing essays, articles, or longer content, ALWAYS structure it properly using the formatting tools:
 
-1. **Title**: Start with a clear, centered title (use a blank line after)
-2. **Introduction**: Opening paragraph that introduces the topic and thesis
-3. **Body Paragraphs**: Each paragraph should:
-   - Start with a topic sentence
-   - Include supporting details and evidence
-   - Be separated by blank lines
-4. **Conclusion**: Final paragraph summarizing key points
+1. **Title**: Use <format type="h1" target="TITLE_TEXT"/> for main titles
+2. **Sections**: Use <format type="h2" target="SECTION_TITLE"/> for section headings
+3. **Subsections**: Use <format type="h3" target="SUBSECTION_TITLE"/> for subsections
+4. **Emphasis**: Use bold for key terms, italic for emphasis
+5. **Lists**: Use bulletList or orderedList for enumerated items
+6. **Quotes**: Use blockquote for quotations
 
-Use this HTML structure for essays:
-- Titles: wrapped in a heading style (larger, bold)
-- Paragraphs: separated by double line breaks
-- Sections: clearly delineated with spacing
+## Example Responses:
+
+**Writing an essay with proper formatting:**
+<chat>I'll write a well-structured essay about climate change.</chat><write>Understanding Climate Change
+
+Climate change is one of the most pressing issues of our time. Scientists worldwide have documented significant changes in Earth's climate system.
+
+The Causes
+
+Human activities, particularly burning fossil fuels, have dramatically increased greenhouse gases. These gases trap heat in our atmosphere.
+
+Key contributing factors include:
+• Transportation emissions
+• Industrial processes  
+• Deforestation
+• Agriculture
+
+The Effects
+
+Climate change affects every aspect of our environment:
+
+Rising sea levels threaten coastal communities. Extreme weather events become more frequent. Ecosystems face unprecedented stress.
+
+Conclusion
+
+Addressing climate change requires global cooperation and immediate action.</write><format type="h1" target="Understanding Climate Change"/><format type="h2" target="The Causes"/><format type="h2" target="The Effects"/><format type="h2" target="Conclusion"/><format type="bold" target="Climate change"/>
+
+**Making text bold:**
+<chat>I'll make the text bold for you.</chat><format type="bold" target="all"/>
+
+**Changing text color:**
+<chat>I'll change the text color to blue.</chat><format type="textColor" target="all" value="#0000ff"/>
+
+**Creating a heading:**
+<chat>I'll make that a heading.</chat><format type="h1" target="Introduction"/>
+
+**Creating a bullet list:**
+<chat>I'll format that as a bullet list.</chat><format type="bulletList" target="all"/>
+
+**Multiple formatting actions:**
+<chat>I'll format 'dogs' to be red and bold.</chat><format type="bold" target="dogs"/><format type="textColor" target="dogs" value="#ff0000"/>
+
+**Editing existing text:**
+<chat>I'll make that change.</chat><edit find="thousands of years">millennia</edit>
 
 ## Rules:
 1. <chat> section: brief, friendly acknowledgment (1-2 sentences)
@@ -463,44 +482,8 @@ Use this HTML structure for essays:
 4. The target for format should be the EXACT text from the document, or "all" for everything
 5. For colors, use hex codes like "#ff0000" or color names like "red", "blue"
 6. If user asks a question not requiring document changes, just use <chat>
-7. For essays/articles, ALWAYS include proper structure with title, intro, body, conclusion
-
-## Examples:
-
-User: "Write an essay about dogs"
-<chat>I'll write a structured essay about dogs for you.</chat><write>The Remarkable Bond Between Humans and Dogs
-
-Introduction
-
-Dogs have been humanity's faithful companions for over 15,000 years, earning their title as "man's best friend." This enduring relationship has shaped both species in profound ways, creating a bond unlike any other in the animal kingdom. From ancient wolves that first approached human campfires to the diverse breeds we know today, dogs have become an integral part of human society and culture.
-
-The History of Domestication
-
-The domestication of dogs represents one of the earliest and most successful partnerships between humans and animals. Archaeological evidence suggests that wolves began associating with human settlements, attracted by food scraps and the safety of human camps. Over generations, the most docile and friendly wolves were welcomed into human communities, gradually evolving into the domestic dogs we know today.
-
-The Role of Dogs in Modern Society
-
-Today, dogs serve countless roles in human life. As beloved family pets, they provide companionship, unconditional love, and emotional support. Working dogs assist in search and rescue operations, guide the visually impaired, and support individuals with various disabilities. Law enforcement and military units rely on dogs for detection work, tracking, and protection.
-
-The Science of the Human-Dog Bond
-
-Research has revealed the biological basis for our connection with dogs. When humans and dogs interact, both experience increases in oxytocin, the "bonding hormone." Dogs have evolved to read human facial expressions and respond to our emotional states, making them uniquely attuned to our needs.
-
-Conclusion
-
-The relationship between humans and dogs stands as a testament to the power of interspecies connection. As we continue to learn more about our canine companions, one thing remains clear: dogs have earned their place not just in our homes, but in our hearts. This ancient partnership continues to enrich human life in countless ways, promising to endure for generations to come.</write>
-
-User: "Make the text bold"
-<chat>I'll make the text bold for you.</chat><format type="bold" target="all"/>
-
-User: "Change the color to blue"
-<chat>I'll change the text color to blue.</chat><format type="textColor" target="all" value="#0000ff"/>
-
-User: "Make 'dogs' red and bold"
-<chat>I'll format 'dogs' to be red and bold.</chat><format type="bold" target="dogs"/><format type="textColor" target="dogs" value="#ff0000"/>
-
-User: "Change 'thousands of years' to 'millennia'"
-<chat>I'll make that change.</chat><edit find="thousands of years">millennia</edit>`;
+7. For essays/articles, include proper structure with headings
+8. Apply formatting AFTER writing content so the text exists first`;
 
 export function useDocuments() {
   const [documents, setDocuments] = useState<Document[]>(() => {
@@ -524,8 +507,9 @@ export function useDocuments() {
   const [isWritingToDoc, setIsWritingToDoc] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const parseContextRef = useRef<ParseContext>(createParseContext());
-  const editorRefStore = useRef<HTMLDivElement | null>(null);
+  const editorRefStore = useRef<TiptapEditorHandle | null>(null);
   const streamingChatRef = useRef<string>('');
+  const writeBufferRef = useRef<string>('');
 
   const activeDocument = documents.find(d => d.id === activeDocId) || documents[0];
 
@@ -577,7 +561,7 @@ export function useDocuments() {
   }, [activeDocId]);
 
   // Send a chat message with direct document editing capability
-  const sendMessage = useCallback(async (content: string, editorRef: React.RefObject<HTMLDivElement | null>) => {
+  const sendMessage = useCallback(async (content: string, editorRef: React.RefObject<TiptapEditorHandle | null>) => {
     if (!content.trim() || isLoading || !activeDocument) return;
 
     // Store editor ref for use in callbacks
@@ -593,6 +577,7 @@ export function useDocuments() {
     const assistantId = crypto.randomUUID();
     parseContextRef.current = createParseContext();
     streamingChatRef.current = '';
+    writeBufferRef.current = '';
 
     // Add user message
     setDocuments(prev => prev.map(doc => 
@@ -612,7 +597,7 @@ export function useDocuments() {
     chatHistory.push({ role: 'user', content: content.trim() });
 
     // Include current document content in context
-    const documentContext = editorRef.current?.textContent || activeDocument.content;
+    const documentContext = editorRef.current?.getText() || activeDocument.content;
     const systemMessage: ChatMessage = {
       role: 'system' as const,
       content: `${SYSTEM_PROMPT}\n\nDocument Title: "${activeDocument.title}"\n\nCurrent Document Content:\n${documentContext || '(empty document)'}`,
@@ -672,18 +657,16 @@ export function useDocuments() {
               ));
             }
             
+            // Buffer write content and insert via Tiptap
+            writeBufferRef.current += char;
+            
             if (editorRefStore.current) {
-              const currentHTML = editorRefStore.current.innerHTML;
+              // Insert single character at a time for streaming effect
+              // Convert newlines to proper HTML
               if (char === '\n') {
-                // Check if previous content ends with a line break (indicates paragraph break)
-                if (currentHTML.endsWith('<br>') || currentHTML.endsWith('<br/>')) {
-                  // Double line break = new paragraph with spacing
-                  editorRefStore.current.innerHTML = currentHTML + '<br><br>';
-                } else {
-                  editorRefStore.current.innerHTML = currentHTML + '<br>';
-                }
+                editorRefStore.current.insertContent('<br>');
               } else {
-                editorRefStore.current.innerHTML = currentHTML + char;
+                editorRefStore.current.insertContent(char);
               }
             }
           },
@@ -703,18 +686,41 @@ export function useDocuments() {
                 : doc
             ));
             
+            // Find and delete the text using Tiptap
             if (editorRefStore.current && !editTargetRemoved) {
-              removeTextFromEditor(editorRefStore.current, findText);
+              const editor = editorRefStore.current.getEditor();
+              if (editor) {
+                const doc = editor.state.doc;
+                let found = false;
+                let from = 0;
+                let to = 0;
+
+                doc.descendants((node, pos) => {
+                  if (found) return false;
+                  if (node.isText && node.text) {
+                    const index = node.text.indexOf(findText);
+                    if (index !== -1) {
+                      from = pos + index;
+                      to = from + findText.length;
+                      found = true;
+                      return false;
+                    }
+                  }
+                });
+
+                if (found) {
+                  editor.chain().focus().setTextSelection({ from, to }).deleteSelection().run();
+                }
+              }
               editTargetRemoved = true;
             }
           },
           onEditToken: (char) => {
             if (editorRefStore.current) {
-              const currentHTML = editorRefStore.current.innerHTML;
               if (char === '\n') {
-                editorRefStore.current.innerHTML = currentHTML + '<br>';
+                editorRefStore.current.insertContent('<br>');
               } else {
-                editorRefStore.current.innerHTML = currentHTML + char;
+                editorRefStore.current.insertContent(char);
               }
             }
           },
@@ -743,7 +749,7 @@ export function useDocuments() {
       onComplete: () => {
         // Save final document content
         if (editorRefStore.current) {
-          const finalContent = editorRefStore.current.innerHTML;
+          const finalContent = editorRefStore.current.getHTML();
           setDocuments(prev => prev.map(doc => 
             doc.id === activeDocId 
               ? { ...doc, content: finalContent, updatedAt: Date.now() }
