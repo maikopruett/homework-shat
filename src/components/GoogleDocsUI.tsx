@@ -699,9 +699,9 @@ ${html}
       </div>
 
       {/* Menu Bars Container */}
-      <div className="relative">
+      <div className="relative z-[100]">
         <div className="whitespace-nowrap">
-          <div className="cursor-default whitespace-nowrap outline-none h-[33px] ml-[54px] font-['Google_Sans',_Roboto,_sans-serif] text-sm inline-block relative text-ellipsis align-top overflow-hidden" role="menubar" tabIndex={0}>
+          <div className="cursor-default whitespace-nowrap outline-none h-[33px] ml-[54px] font-['Google_Sans',_Roboto,_sans-serif] text-sm inline-block relative text-ellipsis align-top" role="menubar" tabIndex={0}>
             <div className="relative inline-block" ref={fileMenuRef}>
               <div 
                 role="menuitem"
