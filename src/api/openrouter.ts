@@ -1,5 +1,4 @@
-const API_KEY = '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';
-const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const API_URL = import.meta.env.VITE_WORKER_URL || '/api/chat';
 const DEFAULT_MODEL = 'x-ai/grok-4.1-fast:free';
 
 export interface ModelInfo {
@@ -51,10 +50,7 @@ export async function sendMessageStream(
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': window.location.origin,
-        'X-Title': 'Homework Helper'
       },
       body: JSON.stringify({
         model,
