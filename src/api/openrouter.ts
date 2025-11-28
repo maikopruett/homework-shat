@@ -1,6 +1,21 @@
 const API_KEY = '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';
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = 'tngtech/tng-r1t-chimera:free';
+const DEFAULT_MODEL = 'tngtech/tng-r1t-chimera:free';
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+}
+
+export const AVAILABLE_MODELS: ModelInfo[] = [
+  { id: 'tngtech/tng-r1t-chimera:free', name: 'TNG R1T Chimera', provider: 'TNG' },
+  { id: 'google/gemma-3-27b-it:free', name: 'Gemma 3 27B', provider: 'Google' },
+  { id: 'deepseek/deepseek-chat-v3-0324:free', name: 'DeepSeek V3', provider: 'DeepSeek' },
+  { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B', provider: 'Meta' },
+  { id: 'qwen/qwen3-235b-a22b:free', name: 'Qwen 3 235B', provider: 'Qwen' },
+  { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1', provider: 'Mistral' },
+];
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -22,7 +37,8 @@ export interface StreamCallbacks {
 
 export async function sendMessageStream(
   messages: ChatMessage[],
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  model: string = DEFAULT_MODEL
 ): Promise<void> {
   const startTime = performance.now();
   let firstTokenTime: number | null = null;
@@ -35,12 +51,12 @@ export async function sendMessageStream(
         'Authorization': `Bearer ${API_KEY}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': window.location.origin,
-        'X-Title': 'Grok Chat PWA'
+        'X-Title': 'Homework Helper'
       },
       body: JSON.stringify({
-        model: MODEL,
+        model,
         messages,
-        max_tokens: 2048,
+        max_tokens: 4096,
         stream: true
       })
     });

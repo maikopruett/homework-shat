@@ -7,6 +7,8 @@ export default function App() {
     activeDocument,
     isLoading,
     isWritingToDoc,
+    selectedModel,
+    setSelectedModel,
     createDocument,
     switchDocument,
     updateTitle,
@@ -21,6 +23,8 @@ export default function App() {
       activeDocument={activeDocument}
       isLoading={isLoading}
       isWritingToDoc={isWritingToDoc}
+      selectedModel={selectedModel}
+      onModelChange={setSelectedModel}
       onSendMessage={sendMessage}
       onCreateDocument={createDocument}
       onSwitchDocument={switchDocument}
