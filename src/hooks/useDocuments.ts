@@ -25,12 +25,17 @@ const MODEL_STORAGE_KEY = 'homework-selected-model';
 const DEFAULT_MODEL = 'x-ai/grok-4.1-fast:free';
 
 // Parser state for handling structured AI responses
-type ParseState = 'idle' | 'in_tag' | 'in_chat' | 'in_write' | 'in_edit' | 'in_format';
+type ParseState = 'idle' | 'in_tag' | 'in_chat' | 'in_write' | 'in_edit' | 'in_format' | 'in_insert';
 
 interface FormatAction {
   type: string;
   target: string;
   value?: string;
+}
+
+interface InsertAction {
+  position: 'start' | 'end' | 'before' | 'after';
+  target?: string; // For before/after positioning
 }
 
 interface ParseContext {
@@ -42,6 +47,8 @@ interface ParseContext {
   editContent: string;
   tagBuffer: string;
   formatAction: FormatAction | null;
+  insertAction: InsertAction | null;
+  insertContent: string;
 }
 
 function createParseContext(): ParseContext {
@@ -54,6 +61,8 @@ function createParseContext(): ParseContext {
     editContent: '',
     tagBuffer: '',
     formatAction: null,
+    insertAction: null,
+    insertContent: '',
   };
 }
 
@@ -69,6 +78,8 @@ function parseToken(
     onEditComplete: (content: string) => void;
     onFormat: (action: FormatAction) => void;
     onClear: () => void;
+    onInsertStart: (action: InsertAction) => void;
+    onInsertComplete: (content: string, action: InsertAction) => void;
   }
 ): ParseContext {
   const newCtx = { ...ctx };
@@ -131,6 +142,36 @@ function parseToken(
             // Self-closing clear tag - clear the document
             callbacks.onClear();
             newCtx.state = 'idle';
+          } else if (tagLower.startsWith('insert')) {
+            // Parse insert tag: <insert position="start">, <insert after="text">, <insert before="text">
+            const positionMatch = newCtx.tagBuffer.match(/position=["']([^"']+)["']/i);
+            const afterMatch = newCtx.tagBuffer.match(/after=["']([^"']+)["']/i);
+            const beforeMatch = newCtx.tagBuffer.match(/before=["']([^"']+)["']/i);
+            
+            let insertAction: InsertAction;
+            if (afterMatch) {
+              insertAction = { position: 'after', target: afterMatch[1] };
+            } else if (beforeMatch) {
+              insertAction = { position: 'before', target: beforeMatch[1] };
+            } else if (positionMatch) {
+              const pos = positionMatch[1].toLowerCase();
+              insertAction = { position: pos === 'start' ? 'start' : 'end' };
+            } else {
+              // Default to end if no position specified
+              insertAction = { position: 'end' };
+            }
+            
+            newCtx.insertAction = insertAction;
+            newCtx.insertContent = '';
+            newCtx.state = 'in_insert';
+            callbacks.onInsertStart(insertAction);
+          } else if (tagLower === '/insert') {
+            if (newCtx.insertAction) {
+              callbacks.onInsertComplete(newCtx.insertContent, newCtx.insertAction);
+              newCtx.insertAction = null;
+            }
+            newCtx.insertContent = '';
+            newCtx.state = 'idle';
           } else if (tagLower === '/chat') {
             newCtx.state = 'idle';
           } else if (tagLower === '/write') {
@@ -187,6 +228,15 @@ function parseToken(
         if (char === '<') {
           newCtx.state = 'in_tag';
           newCtx.tagBuffer = '';
+        }
+        break;
+        
+      case 'in_insert':
+        if (char === '<') {
+          newCtx.state = 'in_tag';
+          newCtx.tagBuffer = '';
+        } else {
+          newCtx.insertContent += char;
         }
         break;
     }
@@ -563,15 +613,21 @@ CRITICAL: You MUST respond using this exact structured format with XML-like tags
 <chat>Brief acknowledgment</chat><write>Content to ADD to document</write>
 NOTE: <write> only APPENDS. Use this for empty documents or adding new sections.
 
-### 2. EDITING specific text (find and replace):
+### 2. INSERTING text at a specific position:
+<chat>Brief acknowledgment</chat><insert position="start">Content to insert</insert>
+<chat>Brief acknowledgment</chat><insert after="existing text">Content to insert after</insert>
+<chat>Brief acknowledgment</chat><insert before="existing text">Content to insert before</insert>
+NOTE: Use this to add content at the beginning, end, or relative to existing text WITHOUT replacing anything.
+
+### 3. EDITING specific text (find and replace):
 <chat>Brief acknowledgment</chat><edit find="exact text to find">Replacement text</edit>
 NOTE: Use this for small, targeted changes to existing content.
 
-### 3. REWRITING the entire document (clear and replace):
+### 4. REWRITING the entire document (clear and replace):
 <chat>Brief acknowledgment</chat><clear/><write>Complete new content</write>
 NOTE: ALWAYS use <clear/> first when rewriting, improving, or creating a new version of existing content. This prevents duplicate content.
 
-### 4. FORMATTING text (bold, italic, colors, headings, lists, etc.):
+### 5. FORMATTING text (bold, italic, colors, headings, lists, etc.):
 <chat>Brief acknowledgment</chat><format type="TYPE" target="TARGET" value="VALUE"/>
 
 ### Format Types Available:
@@ -629,6 +685,18 @@ NOTE: ALWAYS use <clear/> first when rewriting, improving, or creating a new ver
 **Editing existing text:**
 <chat>Fixed that for you.</chat><edit find="thousands of years">millennia</edit>
 
+**Inserting text at the beginning:**
+<chat>Added your name at the top.</chat><insert position="start">John Smith
+
+</insert>
+
+**Inserting text after specific content:**
+<chat>Added a note after the introduction.</chat><insert after="Introduction">
+
+Note: This is important context.
+
+</insert>
+
 ## Rules:
 1. <chat> section: keep it short and casual (1-2 sentences max, no fluff)
 2. You can use multiple actions in one response
@@ -640,12 +708,14 @@ NOTE: ALWAYS use <clear/> first when rewriting, improving, or creating a new ver
 8. Sound human. Be direct, skip the pleasantries, and don't over-explain.
 9. NEVER use markdown syntax (# ## * ** _ etc.) in <write> content. Write plain text, then use <format> tags for styling.
 
-## CRITICAL - Append vs Replace:
+## CRITICAL - When to use each action:
 - <write> ONLY APPENDS content to the end of the document. It NEVER replaces existing content.
-- If the document already has content and you need to REWRITE or CREATE A NEW VERSION, you MUST use <clear/> first: <clear/><write>new content</write>
-- Use <edit find="..."> for small targeted changes to specific text
-- Use <clear/><write> for complete rewrites, new versions, or when asked to "redo", "rewrite", "make it better", "turn it into", etc.
+- <insert position="start"> adds content at the BEGINNING of the document (for headers, names, titles at top)
+- <insert after="text"> or <insert before="text"> adds content relative to existing text WITHOUT replacing it
+- <edit find="..."> for small targeted changes - finds and REPLACES specific text
+- <clear/><write> for complete rewrites, new versions, or when asked to "redo", "rewrite", "make it better", "turn it into", etc.
 - NEVER append a new version below the old one. Either edit specific parts OR clear and rewrite.
+- When asked to "add something to the top" or "put my name at the beginning", use <insert position="start">, NOT <clear/><write>.
 
 Example - Rewriting an essay:
 <chat>Here's the improved version.</chat><clear/><write>New essay content here...</write>
@@ -1037,6 +1107,58 @@ export function useDocuments() {
               
               if (editorRefStore.current) {
                 editorRefStore.current.clearContent();
+              }
+            },
+            onInsertStart: () => {
+              setIsWritingToDoc(true);
+              setDocuments(prev => prev.map(doc => 
+                doc.id === activeDocId 
+                  ? { 
+                      ...doc, 
+                      chatMessages: doc.chatMessages.map(m => 
+                        m.id === assistantId 
+                          ? { ...m, isWriting: true }
+                          : m
+                      ),
+                      updatedAt: Date.now() 
+                    }
+                  : doc
+              ));
+            },
+            onInsertComplete: (insertContent, action) => {
+              if (editorRefStore.current) {
+                const editor = editorRefStore.current.getEditor();
+                if (editor) {
+                  const htmlContent = textToHtml(insertContent);
+                  
+                  if (action.position === 'start') {
+                    // Insert at the very beginning of the document
+                    editor.chain().focus().setTextSelection(0).insertContent(htmlContent).run();
+                  } else if (action.position === 'end') {
+                    // Insert at the end (same as write)
+                    editorRefStore.current.insertContent(htmlContent);
+                  } else if (action.position === 'after' && action.target) {
+                    // Find the target text and insert after it
+                    const doc = editor.state.doc;
+                    const result = findTextInDocument(doc, action.target);
+                    if (result) {
+                      editor.chain().focus().setTextSelection(result.to).insertContent(htmlContent).run();
+                    } else {
+                      // Fallback: insert at end if target not found
+                      editorRefStore.current.insertContent(htmlContent);
+                    }
+                  } else if (action.position === 'before' && action.target) {
+                    // Find the target text and insert before it
+                    const doc = editor.state.doc;
+                    const result = findTextInDocument(doc, action.target);
+                    if (result) {
+                      editor.chain().focus().setTextSelection(result.from).insertContent(htmlContent).run();
+                    } else {
+                      // Fallback: insert at start if target not found
+                      editor.chain().focus().setTextSelection(0).insertContent(htmlContent).run();
+                    }
+                  }
+                }
               }
             },
           });
