@@ -1409,12 +1409,13 @@ ${html}
               Looks like Google Docs, but with AI built in. Your teachers won't know the difference.
             </p>
             
-            <div className="border-t border-gray-100 pt-3">
+            <div className="border-t border-gray-100 pt-3 pb-3">
               <p className="text-[11px] text-gray-500">
                 Built by <span className="font-medium text-gray-700">Maiko</span>
               </p>
               <p className="text-[10px] text-gray-400">Software Engineer / Lord and Savior</p>
             </div>
+            <a href="https://www.buymeacoffee.com/maikopruett"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=maikopruett&button_colour=FFDD00&font_colour=000000&font_family=Poppins&outline_colour=000000&coffee_colour=ffffff" /></a>
           </div>
         )}
       </div>
