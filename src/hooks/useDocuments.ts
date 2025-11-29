@@ -1043,6 +1043,82 @@ export function useDocuments() {
     // Create abort controller for this request
     abortControllerRef.current = new AbortController();
 
+    // Helper function to make follow-up call with search results
+    // This is called from both onComplete and onError to handle the race condition
+    // where search may complete before or after the stream ends
+    const makeSearchFollowUpCall = async () => {
+      if (!pendingSearchResultsRef.current) return false;
+      
+      console.log('[Search] Making follow-up call with search results');
+      const searchResults = pendingSearchResultsRef.current;
+      pendingSearchResultsRef.current = null; // Clear pending results
+      
+      // Format search results for context
+      const formattedResults = formatSearchResultsForAI(searchResults);
+      
+      // Build follow-up messages
+      const followUpHistory: ChatMessage[] = [
+        ...chatHistory,
+        { 
+          role: 'assistant' as const, 
+          content: streamingChatRef.current 
+        },
+        { 
+          role: 'user' as const, 
+          content: `Here are the research results I found:\n\n${formattedResults}\n\nNow please write the content using these sources. Include proper citations with URLs where appropriate.` 
+        }
+      ];
+      
+      // Create new abort controller for follow-up
+      abortControllerRef.current = new AbortController();
+      
+      // Make follow-up call
+      console.log('[Search] Starting follow-up generation with', searchResults.length, 'sources');
+      await sendMessageStream([systemMessage, ...followUpHistory], {
+        onToken: handleToken,
+        onComplete: () => {
+          console.log('[Search] Follow-up generation complete');
+          if (editorRefStore.current) {
+            const finalContent = editorRefStore.current.getHTML();
+            setDocuments(prev => prev.map(doc => 
+              doc.id === activeDocId 
+                ? { ...doc, content: finalContent, updatedAt: Date.now() }
+                : doc
+            ));
+          }
+          
+          setDocuments(prev => prev.map(doc => 
+            doc.id === activeDocId 
+              ? { 
+                  ...doc, 
+                  chatMessages: doc.chatMessages.map(m => 
+                    m.id === assistantId 
+                      ? { ...m, content: streamingChatRef.current, isWriting: false }
+                      : m
+                  ),
+                  updatedAt: Date.now() 
+                }
+              : doc
+          ));
+          
+          setIsLoading(false);
+          setIsWritingToDoc(false);
+          abortControllerRef.current = null;
+        },
+        onError: (followUpErr) => {
+          console.error('[Search] Follow-up generation error:', followUpErr);
+          if (followUpErr.name !== 'AbortError') {
+            setError(followUpErr.message);
+          }
+          setIsLoading(false);
+          setIsWritingToDoc(false);
+          abortControllerRef.current = null;
+        },
+      }, selectedModel, abortControllerRef.current.signal);
+      
+      return true;
+    };
+
     // Handler for streaming tokens based on mode
     const handleToken = mode === 'chat' 
       ? (token: string) => {
@@ -1319,7 +1395,27 @@ export function useDocuments() {
 
     await sendMessageStream([systemMessage, ...chatHistory], {
       onToken: handleToken,
-      onComplete: () => {
+      onComplete: async () => {
+        // Check if a search is still in progress - wait for it to complete
+        // This handles the race condition where the stream finishes before search completes
+        if (searchInProgressRef.current) {
+          console.log('[Search] Stream completed but search still in progress - waiting...');
+          // Wait for search to complete (check every 100ms, max 30 seconds)
+          let waited = 0;
+          while (searchInProgressRef.current && waited < 30000) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            waited += 100;
+          }
+          console.log('[Search] Search finished after', waited, 'ms wait');
+        }
+        
+        // Check if we have pending search results
+        if (pendingSearchResultsRef.current) {
+          console.log('[Search] Stream completed with pending search results - making follow-up call');
+          await makeSearchFollowUpCall();
+          return;
+        }
+        
         // Save final document content
         if (editorRefStore.current) {
           const finalContent = editorRefStore.current.getHTML();
@@ -1352,73 +1448,7 @@ export function useDocuments() {
       onError: async (err) => {
         // Check if we aborted due to a search - if so, make follow-up call with results
         if (err.name === 'AbortError' && pendingSearchResultsRef.current) {
-          console.log('[Search] Making follow-up call with search results');
-          const searchResults = pendingSearchResultsRef.current;
-          pendingSearchResultsRef.current = null; // Clear pending results
-          
-          // Format search results for context
-          const formattedResults = formatSearchResultsForAI(searchResults);
-          
-          // Build follow-up messages
-          const followUpHistory: ChatMessage[] = [
-            ...chatHistory,
-            { 
-              role: 'assistant' as const, 
-              content: streamingChatRef.current 
-            },
-            { 
-              role: 'user' as const, 
-              content: `Here are the research results I found:\n\n${formattedResults}\n\nNow please write the content using these sources. Include proper citations with URLs where appropriate.` 
-            }
-          ];
-          
-          // Create new abort controller for follow-up
-          abortControllerRef.current = new AbortController();
-          
-          // Make follow-up call
-          console.log('[Search] Starting follow-up generation with', searchResults.length, 'sources');
-          await sendMessageStream([systemMessage, ...followUpHistory], {
-            onToken: handleToken,
-            onComplete: () => {
-              console.log('[Search] Follow-up generation complete');
-              if (editorRefStore.current) {
-                const finalContent = editorRefStore.current.getHTML();
-                setDocuments(prev => prev.map(doc => 
-                  doc.id === activeDocId 
-                    ? { ...doc, content: finalContent, updatedAt: Date.now() }
-                    : doc
-                ));
-              }
-              
-              setDocuments(prev => prev.map(doc => 
-                doc.id === activeDocId 
-                  ? { 
-                      ...doc, 
-                      chatMessages: doc.chatMessages.map(m => 
-                        m.id === assistantId 
-                          ? { ...m, content: streamingChatRef.current, isWriting: false }
-                          : m
-                      ),
-                      updatedAt: Date.now() 
-                    }
-                  : doc
-              ));
-              
-              setIsLoading(false);
-              setIsWritingToDoc(false);
-              abortControllerRef.current = null;
-            },
-            onError: (followUpErr) => {
-              console.error('[Search] Follow-up generation error:', followUpErr);
-              if (followUpErr.name !== 'AbortError') {
-                setError(followUpErr.message);
-              }
-              setIsLoading(false);
-              setIsWritingToDoc(false);
-              abortControllerRef.current = null;
-            },
-          }, selectedModel, abortControllerRef.current.signal);
-          
+          await makeSearchFollowUpCall();
           return; // Don't run the normal abort handling
         }
         
