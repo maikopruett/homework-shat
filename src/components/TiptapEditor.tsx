@@ -125,6 +125,8 @@ const FontSize = Extension.create({
 });
 
 // Custom extension to add text-indent support for paragraphs (essay-style first-line indentation)
+// Note: We intentionally don't parse text-indent from HTML to prevent accidental indentation
+// from pasted content or AI-generated HTML. Text-indent is only applied via explicit commands.
 const TextIndent = Extension.create({
   name: 'textIndent',
 
@@ -142,7 +144,9 @@ const TextIndent = Extension.create({
         attributes: {
           textIndent: {
             default: null,
-            parseHTML: element => element.style.textIndent || null,
+            // Don't parse text-indent from HTML - only apply via commands
+            // This prevents accidental indentation from pasted/AI content
+            parseHTML: () => null,
             renderHTML: attributes => {
               if (!attributes.textIndent) {
                 return {};
@@ -273,6 +277,65 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
       editorProps: {
         attributes: {
           class: 'tiptap-editor-content',
+        },
+        handleKeyDown: (view, event) => {
+          // Handle Tab and Shift+Tab for indentation
+          if (event.key === 'Tab') {
+            event.preventDefault();
+            
+            const { state, dispatch } = view;
+            const { selection } = state;
+            
+            if (event.shiftKey) {
+              // Shift+Tab: outdent
+              // For list items, lift the item
+              if (editor?.isActive('listItem')) {
+                editor.chain().focus().liftListItem('listItem').run();
+                return true;
+              }
+              // For regular paragraphs, remove textIndent attribute if present
+              const currentNode = state.selection.$from.parent;
+              if (currentNode.type.name === 'paragraph' || currentNode.type.name === 'heading') {
+                if (currentNode.attrs.textIndent) {
+                  editor?.chain().focus().unsetTextIndent().run();
+                  return true;
+                }
+              }
+              return true;
+            } else {
+              // Tab: indent
+              // For list items, sink the item
+              if (editor?.isActive('listItem')) {
+                editor.chain().focus().sinkListItem('listItem').run();
+                return true;
+              }
+              // For regular text, insert a tab character
+              const tr = state.tr.insertText('\t', selection.from, selection.to);
+              dispatch(tr);
+              return true;
+            }
+          }
+          
+          // Handle Backspace at beginning of line to remove textIndent
+          if (event.key === 'Backspace') {
+            const { state } = view;
+            const { selection } = state;
+            const { $from } = selection;
+            
+            // Check if we're at the beginning of a text block (position 1 within parent means start of text)
+            const isAtStart = $from.parentOffset === 0;
+            
+            if (isAtStart && !editor?.isActive('listItem')) {
+              const currentNode = $from.parent;
+              if ((currentNode.type.name === 'paragraph' || currentNode.type.name === 'heading') && currentNode.attrs.textIndent) {
+                // Remove the textIndent instead of default backspace behavior
+                editor?.chain().focus().unsetTextIndent().run();
+                return true;
+              }
+            }
+          }
+          
+          return false;
         },
       },
     });
