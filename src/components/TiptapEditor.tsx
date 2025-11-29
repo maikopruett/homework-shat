@@ -46,10 +46,29 @@ export interface TiptapEditorHandle {
   unsetTextIndent: () => void;
 }
 
+export interface EditorState {
+  isBold: boolean;
+  isItalic: boolean;
+  isUnderline: boolean;
+  isStrike: boolean;
+  textColor: string | null;
+  highlightColor: string | null;
+  fontFamily: string | null;
+  fontSize: string | null;
+  headingLevel: number | null; // null = paragraph, 1-6 = heading level
+  textAlign: 'left' | 'center' | 'right' | 'justify';
+  isBulletList: boolean;
+  isOrderedList: boolean;
+  isBlockquote: boolean;
+  isCodeBlock: boolean;
+  isLink: boolean;
+}
+
 interface TiptapEditorProps {
   content?: string;
   onUpdate?: (html: string) => void;
   onBlur?: () => void;
+  onSelectionUpdate?: (state: EditorState) => void;
   placeholder?: string;
   className?: string;
 }
@@ -169,7 +188,47 @@ declare module '@tiptap/core' {
 }
 
 const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
-  ({ content = '', onUpdate, onBlur, placeholder = 'Start typing...', className = '' }, ref) => {
+  ({ content = '', onUpdate, onBlur, onSelectionUpdate, placeholder = 'Start typing...', className = '' }, ref) => {
+    
+    // Helper to get current editor state for toolbar sync
+    const getEditorState = (editor: Editor): EditorState => {
+      const textStyleAttrs = editor.getAttributes('textStyle');
+      const highlightAttrs = editor.getAttributes('highlight');
+      
+      // Determine heading level
+      let headingLevel: number | null = null;
+      for (let level = 1; level <= 6; level++) {
+        if (editor.isActive('heading', { level })) {
+          headingLevel = level;
+          break;
+        }
+      }
+      
+      // Get text alignment
+      let textAlign: 'left' | 'center' | 'right' | 'justify' = 'left';
+      if (editor.isActive({ textAlign: 'center' })) textAlign = 'center';
+      else if (editor.isActive({ textAlign: 'right' })) textAlign = 'right';
+      else if (editor.isActive({ textAlign: 'justify' })) textAlign = 'justify';
+      
+      return {
+        isBold: editor.isActive('bold'),
+        isItalic: editor.isActive('italic'),
+        isUnderline: editor.isActive('underline'),
+        isStrike: editor.isActive('strike'),
+        textColor: textStyleAttrs.color || null,
+        highlightColor: highlightAttrs.color || null,
+        fontFamily: textStyleAttrs.fontFamily || null,
+        fontSize: textStyleAttrs.fontSize || null,
+        headingLevel,
+        textAlign,
+        isBulletList: editor.isActive('bulletList'),
+        isOrderedList: editor.isActive('orderedList'),
+        isBlockquote: editor.isActive('blockquote'),
+        isCodeBlock: editor.isActive('codeBlock'),
+        isLink: editor.isActive('link'),
+      };
+    };
+    
     const editor = useEditor({
       extensions: [
         StarterKit.configure({
@@ -203,6 +262,10 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
       immediatelyRender: false, // Prevents duplicate extension warning in React 18 Strict Mode
       onUpdate: ({ editor }) => {
         onUpdate?.(editor.getHTML());
+        onSelectionUpdate?.(getEditorState(editor));
+      },
+      onSelectionUpdate: ({ editor }) => {
+        onSelectionUpdate?.(getEditorState(editor));
       },
       onBlur: () => {
         onBlur?.();

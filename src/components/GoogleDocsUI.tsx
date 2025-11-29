@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import type { Document, ChatMode } from '../hooks/useDocuments';
 import ChatSidebar from './ChatSidebar';
-import TiptapEditor, { type TiptapEditorHandle } from './TiptapEditor';
+import TiptapEditor, { type TiptapEditorHandle, type EditorState } from './TiptapEditor';
 import type { SearchResult } from '../api/exa';
 
 interface GoogleDocsUIProps {
@@ -95,6 +95,10 @@ export default function GoogleDocsUI({
   const [currentHighlightColor, setCurrentHighlightColor] = useState('#ffff00');
   const [alignMenuOpen, setAlignMenuOpen] = useState(false);
   const [headingMenuOpen, setHeadingMenuOpen] = useState(false);
+  const [isBold, setIsBold] = useState(false);
+  const [isItalic, setIsItalic] = useState(false);
+  const [isUnderline, setIsUnderline] = useState(false);
+  const [currentAlign, setCurrentAlign] = useState<'left' | 'center' | 'right' | 'justify'>('left');
   const textColorRef = useRef<HTMLDivElement>(null);
   const highlightColorRef = useRef<HTMLDivElement>(null);
   const alignMenuRef = useRef<HTMLDivElement>(null);
@@ -139,6 +143,57 @@ export default function GoogleDocsUI({
       onUpdateContent(activeDocument.id, html);
     }
   }, [activeDocument, onUpdateContent]);
+
+  // Handle editor selection update - sync toolbar with current selection
+  const handleSelectionUpdate = useCallback((state: EditorState) => {
+    // Update bold/italic/underline states
+    setIsBold(state.isBold);
+    setIsItalic(state.isItalic);
+    setIsUnderline(state.isUnderline);
+    
+    // Update text color if set
+    if (state.textColor) {
+      setCurrentTextColor(state.textColor);
+    }
+    
+    // Update highlight color if set
+    if (state.highlightColor) {
+      setCurrentHighlightColor(state.highlightColor);
+    }
+    
+    // Update font family
+    if (state.fontFamily) {
+      setFontFamily(state.fontFamily);
+    } else {
+      setFontFamily('Arial'); // Default
+    }
+    
+    // Update font size (parse from string like "11pt")
+    if (state.fontSize) {
+      const sizeMatch = state.fontSize.match(/(\d+)/);
+      if (sizeMatch) {
+        setFontSize(parseInt(sizeMatch[1], 10));
+      }
+    } else {
+      // Default font size based on heading level or default
+      if (state.headingLevel) {
+        const headingSizes: Record<number, number> = { 1: 32, 2: 24, 3: 18, 4: 14, 5: 12, 6: 11 };
+        setFontSize(headingSizes[state.headingLevel] || 11);
+      } else {
+        setFontSize(11); // Default
+      }
+    }
+    
+    // Update heading style
+    if (state.headingLevel) {
+      setHeadingStyle(`h${state.headingLevel}`);
+    } else {
+      setHeadingStyle('paragraph');
+    }
+    
+    // Update text alignment
+    setCurrentAlign(state.textAlign);
+  }, []);
 
   // Toolbar actions using Tiptap
   const handleBold = () => editorRef.current?.toggleBold();
@@ -202,7 +257,9 @@ export default function GoogleDocsUI({
       'justifyRight': 'right',
       'justifyFull': 'justify',
     };
-    editorRef.current?.setTextAlign(alignMap[alignment] || 'left');
+    const newAlign = alignMap[alignment] || 'left';
+    setCurrentAlign(newAlign);
+    editorRef.current?.setTextAlign(newAlign);
     setAlignMenuOpen(false);
   };
   
@@ -987,17 +1044,17 @@ ${html}
 
         {/* Text Formatting */}
         <div className="inline-flex items-center">
-          <button className="relative outline-none text-xs font-medium cursor-pointer border border-transparent text-black/70 min-w-7 h-7 mx-px my-1.5 rounded transition-colors hover:bg-zinc-700/[0.08] focus:bg-zinc-700/[0.12] select-none flex items-center justify-center" title="Bold (⌘B)" onClick={handleBold}>
+          <button className={`relative outline-none text-xs font-medium cursor-pointer border border-transparent min-w-7 h-7 mx-px my-1.5 rounded transition-colors select-none flex items-center justify-center ${isBold ? 'bg-blue-100 text-blue-600' : 'text-black/70 hover:bg-zinc-700/[0.08] focus:bg-zinc-700/[0.12]'}`} title="Bold (⌘B)" onClick={handleBold}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <path d="M15.6 10.79c.97-.67 1.65-1.77 1.65-2.79 0-2.26-1.75-4-4-4H7v14h7.04c2.09 0 3.71-1.7 3.71-3.79 0-1.52-.86-2.82-2.15-3.42zM10 6.5h3c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-3v-3zm3.5 9H10v-3h3.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5z"/>
             </svg>
           </button>
-          <button className="relative outline-none text-xs font-medium cursor-pointer border border-transparent text-black/70 min-w-7 h-7 mx-px my-1.5 rounded transition-colors hover:bg-zinc-700/[0.08] focus:bg-zinc-700/[0.12] select-none flex items-center justify-center" title="Italic (⌘I)" onClick={handleItalic}>
+          <button className={`relative outline-none text-xs font-medium cursor-pointer border border-transparent min-w-7 h-7 mx-px my-1.5 rounded transition-colors select-none flex items-center justify-center ${isItalic ? 'bg-blue-100 text-blue-600' : 'text-black/70 hover:bg-zinc-700/[0.08] focus:bg-zinc-700/[0.12]'}`} title="Italic (⌘I)" onClick={handleItalic}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <path d="M10 4v3h2.21l-3.42 8H6v3h8v-3h-2.21l3.42-8H18V4z"/>
             </svg>
           </button>
-          <button className="relative outline-none text-xs font-medium cursor-pointer border border-transparent text-black/70 min-w-7 h-7 mx-px my-1.5 rounded transition-colors hover:bg-zinc-700/[0.08] focus:bg-zinc-700/[0.12] select-none flex items-center justify-center" title="Underline (⌘U)" onClick={handleUnderline}>
+          <button className={`relative outline-none text-xs font-medium cursor-pointer border border-transparent min-w-7 h-7 mx-px my-1.5 rounded transition-colors select-none flex items-center justify-center ${isUnderline ? 'bg-blue-100 text-blue-600' : 'text-black/70 hover:bg-zinc-700/[0.08] focus:bg-zinc-700/[0.12]'}`} title="Underline (⌘U)" onClick={handleUnderline}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 17c3.31 0 6-2.69 6-6V3h-2.5v8c0 1.93-1.57 3.5-3.5 3.5S8.5 12.93 8.5 11V3H6v8c0 3.31 2.69 6 6 6zm-7 2v2h14v-2H5z"/>
             </svg>
@@ -1100,29 +1157,47 @@ ${html}
               title="Align & indent"
               onClick={() => setAlignMenuOpen(!alignMenuOpen)}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M15 15H3v2h12v-2zm0-8H3v2h12V7zM3 13h18v-2H3v2zm0 8h18v-2H3v2zM3 3v2h18V3H3z"/>
-              </svg>
+              {/* Show icon based on current alignment */}
+              {currentAlign === 'left' && (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M15 15H3v2h12v-2zm0-8H3v2h12V7zM3 13h18v-2H3v2zm0 8h18v-2H3v2zM3 3v2h18V3H3z"/>
+                </svg>
+              )}
+              {currentAlign === 'center' && (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M7 15v2h10v-2H7zm-4 6h18v-2H3v2zm0-8h18v-2H3v2zm4-6v2h10V7H7zM3 3v2h18V3H3z"/>
+                </svg>
+              )}
+              {currentAlign === 'right' && (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3 21h18v-2H3v2zm6-4h12v-2H9v2zm-6-4h18v-2H3v2zm6-4h12V7H9v2zM3 3v2h18V3H3z"/>
+                </svg>
+              )}
+              {currentAlign === 'justify' && (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z"/>
+                </svg>
+              )}
               <div className="w-0 h-0 border-t-4 border-x-4 border-solid border-x-transparent border-t-zinc-700 -ml-0.5" />
             </button>
             {alignMenuOpen && (
               <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-[0_2px_10px_rgba(0,0,0,0.15),0_4px_20px_rgba(0,0,0,0.1)] p-2 flex gap-1 z-[1000] animate-[dropdown-in_0.15s_ease]">
-                <button className="w-8 h-8 border-none bg-transparent rounded cursor-pointer flex items-center justify-center text-black/70 transition-colors hover:bg-gray-100" onClick={() => handleAlign('justifyLeft')} title="Align left">
+                <button className={`w-8 h-8 border-none rounded cursor-pointer flex items-center justify-center transition-colors ${currentAlign === 'left' ? 'bg-blue-100 text-blue-600' : 'bg-transparent text-black/70 hover:bg-gray-100'}`} onClick={() => handleAlign('justifyLeft')} title="Align left">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M15 15H3v2h12v-2zm0-8H3v2h12V7zM3 13h18v-2H3v2zm0 8h18v-2H3v2zM3 3v2h18V3H3z"/>
                   </svg>
                 </button>
-                <button className="w-8 h-8 border-none bg-transparent rounded cursor-pointer flex items-center justify-center text-black/70 transition-colors hover:bg-gray-100" onClick={() => handleAlign('justifyCenter')} title="Align center">
+                <button className={`w-8 h-8 border-none rounded cursor-pointer flex items-center justify-center transition-colors ${currentAlign === 'center' ? 'bg-blue-100 text-blue-600' : 'bg-transparent text-black/70 hover:bg-gray-100'}`} onClick={() => handleAlign('justifyCenter')} title="Align center">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M7 15v2h10v-2H7zm-4 6h18v-2H3v2zm0-8h18v-2H3v2zm4-6v2h10V7H7zM3 3v2h18V3H3z"/>
                   </svg>
                 </button>
-                <button className="w-8 h-8 border-none bg-transparent rounded cursor-pointer flex items-center justify-center text-black/70 transition-colors hover:bg-gray-100" onClick={() => handleAlign('justifyRight')} title="Align right">
+                <button className={`w-8 h-8 border-none rounded cursor-pointer flex items-center justify-center transition-colors ${currentAlign === 'right' ? 'bg-blue-100 text-blue-600' : 'bg-transparent text-black/70 hover:bg-gray-100'}`} onClick={() => handleAlign('justifyRight')} title="Align right">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M3 21h18v-2H3v2zm6-4h12v-2H9v2zm-6-4h18v-2H3v2zm6-4h12V7H9v2zM3 3v2h18V3H3z"/>
                   </svg>
                 </button>
-                <button className="w-8 h-8 border-none bg-transparent rounded cursor-pointer flex items-center justify-center text-black/70 transition-colors hover:bg-gray-100" onClick={() => handleAlign('justifyFull')} title="Justify">
+                <button className={`w-8 h-8 border-none rounded cursor-pointer flex items-center justify-center transition-colors ${currentAlign === 'justify' ? 'bg-blue-100 text-blue-600' : 'bg-transparent text-black/70 hover:bg-gray-100'}`} onClick={() => handleAlign('justifyFull')} title="Justify">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z"/>
                   </svg>
@@ -1278,6 +1353,7 @@ ${html}
                 ref={editorRef}
                 content={activeDocument?.content || ''}
                 onUpdate={handleEditorUpdate}
+                onSelectionUpdate={handleSelectionUpdate}
                 onBlur={saveContent}
                 placeholder="Start typing your document..."
                 className="w-full min-h-[912px] outline-none font-['Arial',_sans-serif] text-[11pt] leading-[1.15] text-black"
