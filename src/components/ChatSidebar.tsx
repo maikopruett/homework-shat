@@ -630,7 +630,7 @@ export default function ChatSidebar({
                   type="button"
                   onClick={onStopGeneration}
                   disabled={isSearching}
-                  className="w-8 h-8 border-none bg-red-500 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed ml-2"
+                  className="w-8 h-8 border-none bg-gray-500 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed ml-2"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                     <rect x="6" y="6" width="12" height="12" rx="2" />

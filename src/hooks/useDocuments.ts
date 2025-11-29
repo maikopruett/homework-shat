@@ -1211,6 +1211,60 @@ export function useDocuments() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const searchInProgressRef = useRef<boolean>(false);
   const pendingSearchResultsRef = useRef<SearchResult[] | null>(null);
+  const savedScrollPositionRef = useRef<number | null>(null);
+
+  // Helper function to find the scrollable container (parent with overflow-y-auto)
+  const findScrollableContainer = useCallback((editorElement: HTMLElement | null): HTMLElement | null => {
+    if (!editorElement) return null;
+    
+    let current: HTMLElement | null = editorElement.parentElement;
+    while (current) {
+      const style = window.getComputedStyle(current);
+      if (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflow === 'auto' || style.overflow === 'scroll') {
+        return current;
+      }
+      current = current.parentElement;
+    }
+    return null;
+  }, []);
+
+  // Save scroll position before AI edits
+  const saveScrollPosition = useCallback(() => {
+    const editorHandle = editorRefStore.current;
+    if (!editorHandle) return;
+    
+    const editor = editorHandle.getEditor();
+    if (!editor) return;
+    
+    const editorElement = editor.view.dom as HTMLElement;
+    const scrollContainer = findScrollableContainer(editorElement);
+    
+    if (scrollContainer) {
+      savedScrollPositionRef.current = scrollContainer.scrollTop;
+    }
+  }, [findScrollableContainer]);
+
+  // Restore scroll position after AI edits
+  const restoreScrollPosition = useCallback(() => {
+    const editorHandle = editorRefStore.current;
+    if (!editorHandle || savedScrollPositionRef.current === null) return;
+    
+    const editor = editorHandle.getEditor();
+    if (!editor) return;
+    
+    const editorElement = editor.view.dom as HTMLElement;
+    const scrollContainer = findScrollableContainer(editorElement);
+    
+    if (scrollContainer) {
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        if (savedScrollPositionRef.current !== null) {
+          scrollContainer.scrollTop = savedScrollPositionRef.current;
+          savedScrollPositionRef.current = null;
+        }
+      });
+    }
+  }, [findScrollableContainer]);
 
   const activeDocument = documents.find(d => d.id === activeDocId) || documents[0];
 
@@ -1539,6 +1593,7 @@ export function useDocuments() {
               ));
             },
             onWriteStart: () => {
+              saveScrollPosition();
               setIsWritingToDoc(true);
               setDocuments(prev => prev.map(doc => 
                 doc.id === activeDocId 
@@ -1559,9 +1614,11 @@ export function useDocuments() {
                 // Convert text to HTML and insert it all at once
                 const htmlContent = textToHtml(writeContent);
                 editorRefStore.current.insertContent(htmlContent);
+                restoreScrollPosition();
               }
             },
             onEditStart: (findText) => {
+              saveScrollPosition();
               setIsWritingToDoc(true);
               setDocuments(prev => prev.map(doc => 
                 doc.id === activeDocId 
@@ -1595,9 +1652,11 @@ export function useDocuments() {
               if (editorRefStore.current) {
                 // Insert the replacement content at the edit position
                 editorRefStore.current.insertContent(editContent);
+                restoreScrollPosition();
               }
             },
             onFormat: (action) => {
+              saveScrollPosition();
               setIsWritingToDoc(true);
               setDocuments(prev => prev.map(doc => 
                 doc.id === activeDocId 
@@ -1615,9 +1674,11 @@ export function useDocuments() {
               
               if (editorRefStore.current) {
                 applyFormatting(editorRefStore.current, action);
+                restoreScrollPosition();
               }
             },
             onClear: () => {
+              saveScrollPosition();
               setIsWritingToDoc(true);
               setDocuments(prev => prev.map(doc => 
                 doc.id === activeDocId 
@@ -1635,9 +1696,11 @@ export function useDocuments() {
               
               if (editorRefStore.current) {
                 editorRefStore.current.clearContent();
+                restoreScrollPosition();
               }
             },
             onInsertStart: () => {
+              saveScrollPosition();
               setIsWritingToDoc(true);
               setDocuments(prev => prev.map(doc => 
                 doc.id === activeDocId 
@@ -1686,6 +1749,7 @@ export function useDocuments() {
                       editor.chain().focus().setTextSelection(0).insertContent(htmlContent).run();
                     }
                   }
+                  restoreScrollPosition();
                 }
               }
             },
