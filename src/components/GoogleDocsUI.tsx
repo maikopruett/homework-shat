@@ -93,12 +93,17 @@ export default function GoogleDocsUI({
   const [personaDocContent, setPersonaDocContent] = useState<string | null>(null);
   const [personaUploadError, setPersonaUploadError] = useState<string | null>(null);
   const [isDraggingPersonaFile, setIsDraggingPersonaFile] = useState(false);
+  const [isImportingDocument, setIsImportingDocument] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [pendingImportContent, setPendingImportContent] = useState<string | null>(null);
+  const [importPreviousDocId, setImportPreviousDocId] = useState<string | null>(null);
   const fileMenuRef = useRef<HTMLDivElement>(null);
   const downloadMenuRef = useRef<HTMLDivElement>(null);
   const infoRef = useRef<HTMLDivElement>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const profileImageInputRef = useRef<HTMLInputElement>(null);
   const personaFileInputRef = useRef<HTMLInputElement>(null);
+  const documentImportInputRef = useRef<HTMLInputElement>(null);
   
   // Toolbar state
   const [fontSize, setFontSize] = useState(11);
@@ -118,6 +123,38 @@ export default function GoogleDocsUI({
   const highlightColorRef = useRef<HTMLDivElement>(null);
   const alignMenuRef = useRef<HTMLDivElement>(null);
   const headingMenuRef = useRef<HTMLDivElement>(null);
+
+  // Handle pending document import content
+  useEffect(() => {
+    // Only apply content when:
+    // 1. We have pending content to import
+    // 2. We're in import mode
+    // 3. The activeDocument has changed from the previous one (meaning new doc was created)
+    if (
+      pendingImportContent && 
+      activeDocument && 
+      isImportingDocument && 
+      activeDocument.id !== importPreviousDocId
+    ) {
+      // Set the content on the new document
+      onUpdateContent(activeDocument.id, pendingImportContent);
+      // Also set it in the editor directly to ensure it's displayed
+      if (editorRef.current) {
+        editorRef.current.setContent(pendingImportContent);
+      }
+      setPendingImportContent(null);
+      setIsImportingDocument(false);
+      setImportPreviousDocId(null);
+    }
+  }, [pendingImportContent, activeDocument, isImportingDocument, importPreviousDocId, onUpdateContent]);
+
+  // Show import error
+  useEffect(() => {
+    if (importError) {
+      alert(`Failed to import document: ${importError}`);
+      setImportError(null);
+    }
+  }, [importError]);
 
   // Close menus when clicking outside
   useEffect(() => {
@@ -600,6 +637,53 @@ ${html}
     setProfileMenuOpen(false);
   }, [personaSettings, onUpdatePersona]);
 
+  // Handle document import
+  const handleDocumentImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setIsImportingDocument(true);
+    setImportError(null);
+    setFileMenuOpen(false);
+    
+    // Store the current document ID so we can detect when the new document is ready
+    setImportPreviousDocId(activeDocument?.id || null);
+    
+    try {
+      const parsed = await parseFile(file);
+      // Remove file extension from name for the document title
+      const title = parsed.name.replace(/\.[^/.]+$/, '');
+      
+      let htmlContent: string;
+      
+      if (parsed.isHtml) {
+        // Content is already HTML with formatting preserved (e.g., from .docx)
+        htmlContent = parsed.content;
+      } else {
+        // Convert plain text to HTML paragraphs (for .txt, .pdf)
+        htmlContent = parsed.content
+          .split('\n\n')
+          .map(para => para.trim())
+          .filter(para => para.length > 0)
+          .map(para => `<p>${para.replace(/\n/g, '<br>')}</p>`)
+          .join('');
+      }
+      
+      // Store the content to be applied after document is created
+      setPendingImportContent(htmlContent);
+      
+      // Create new document - the useEffect will handle setting the content
+      onCreateDocument(title);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Failed to import document');
+      setIsImportingDocument(false);
+      setImportPreviousDocId(null);
+    }
+    
+    // Reset the input so the same file can be selected again
+    e.target.value = '';
+  }, [onCreateDocument, activeDocument?.id]);
+
   // Handle persona document upload
   const handlePersonaFileUpload = useCallback(async (file: File) => {
     setPersonaUploadError(null);
@@ -1020,19 +1104,40 @@ ${html}
                     <span className="ml-auto text-xs text-gray-400">⌘N</span>
                   </button>
                   <div className="h-px bg-gray-200 my-2" />
-                  <button 
-                    className="flex items-center gap-3 w-full px-4 py-2 border-none bg-transparent text-gray-800 text-sm text-left cursor-pointer transition-colors hover:bg-gray-100"
-                    onClick={() => {
-                      setChatOpen(true);
-                      setFileMenuOpen(false);
-                    }}
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                    </svg>
-                    Open document
-                    <span className="ml-auto text-xs text-gray-400">⌘O</span>
-                  </button>
+                  <div className="group relative">
+                    <button 
+                      className="flex items-center gap-3 w-full px-4 py-2 border-none bg-transparent text-gray-800 text-sm text-left cursor-pointer transition-colors hover:bg-gray-100"
+                      onClick={() => documentImportInputRef.current?.click()}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="12" y1="18" x2="12" y2="12"/>
+                        <line x1="9" y1="15" x2="15" y2="15"/>
+                      </svg>
+                      Import document
+                      <span className="ml-auto text-xs text-gray-400">⌘O</span>
+                    </button>
+                    {/* Tooltip with format info */}
+                    <div className="absolute left-full top-0 ml-2 w-56 p-3 bg-white text-gray-800 text-xs rounded-lg shadow-[0_2px_10px_rgba(0,0,0,0.15),0_4px_20px_rgba(0,0,0,0.1)] border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[1100]">
+                      <p className="font-medium mb-1.5 text-gray-900">Supported formats:</p>
+                      <ul className="space-y-1 text-gray-600">
+                        <li><span className="text-green-600 font-medium">✓ HTML</span> – Full formatting</li>
+                        <li><span className="text-blue-600 font-medium">◐ DOCX</span> – Basic formatting</li>
+                        <li><span className="text-gray-500">○ TXT/PDF</span> – Text only</li>
+                      </ul>
+                      <p className="mt-2 text-gray-500 border-t border-gray-200 pt-2">
+                        Tip: Save Word docs as HTML
+                      </p>
+                    </div>
+                  </div>
+                  <input 
+                    ref={documentImportInputRef}
+                    type="file"
+                    accept={getAcceptedFileTypes()}
+                    className="hidden"
+                    onChange={handleDocumentImport}
+                  />
                   <div className="h-px bg-gray-200 my-2" />
                   
                   {/* Download submenu */}
@@ -1727,7 +1832,7 @@ ${html}
                       Drop a document here or click to upload
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
-                      Supports .txt, .pdf, .docx
+                      Supports .txt, .pdf, .docx, .html
                     </p>
                   </div>
                 )}
