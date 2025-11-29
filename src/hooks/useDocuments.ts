@@ -385,6 +385,234 @@ function findTextInDocument(doc: any, searchText: string): TextSearchResult | nu
   };
 }
 
+// Extract document styling information for AI context
+interface DocumentStyleInfo {
+  hasContent: boolean;
+  totalParagraphs: number;
+  totalHeadings: { level: number; text: string }[];
+  hasBoldText: boolean;
+  hasItalicText: boolean;
+  hasUnderlineText: boolean;
+  hasColoredText: boolean;
+  hasHighlightedText: boolean;
+  hasBulletLists: boolean;
+  hasNumberedLists: boolean;
+  hasBlockquotes: boolean;
+  hasCodeBlocks: boolean;
+  hasLinks: boolean;
+  textAlignments: Set<string>;
+  fontFamilies: Set<string>;
+  fontSizes: Set<string>;
+  textColors: Set<string>;
+  highlightColors: Set<string>;
+  formattedSections: { text: string; styles: string[] }[];
+}
+
+function extractDocumentStyling(editor: TiptapEditorHandle): DocumentStyleInfo {
+  const editorInstance = editor.getEditor();
+  const info: DocumentStyleInfo = {
+    hasContent: false,
+    totalParagraphs: 0,
+    totalHeadings: [],
+    hasBoldText: false,
+    hasItalicText: false,
+    hasUnderlineText: false,
+    hasColoredText: false,
+    hasHighlightedText: false,
+    hasBulletLists: false,
+    hasNumberedLists: false,
+    hasBlockquotes: false,
+    hasCodeBlocks: false,
+    hasLinks: false,
+    textAlignments: new Set<string>(),
+    fontFamilies: new Set<string>(),
+    fontSizes: new Set<string>(),
+    textColors: new Set<string>(),
+    highlightColors: new Set<string>(),
+    formattedSections: [],
+  };
+
+  if (!editorInstance) return info;
+
+  const doc = editorInstance.state.doc;
+  info.hasContent = doc.textContent.length > 0;
+
+  // Traverse the document to extract styling info
+  doc.descendants((node) => {
+    // Check node type
+    if (node.type.name === 'paragraph') {
+      info.totalParagraphs++;
+      // Check text alignment
+      if (node.attrs.textAlign) {
+        info.textAlignments.add(node.attrs.textAlign);
+      }
+    }
+
+    if (node.type.name === 'heading') {
+      const level = node.attrs.level as number;
+      info.totalHeadings.push({ level, text: node.textContent.slice(0, 50) });
+      if (node.attrs.textAlign) {
+        info.textAlignments.add(node.attrs.textAlign);
+      }
+    }
+
+    if (node.type.name === 'bulletList') {
+      info.hasBulletLists = true;
+    }
+
+    if (node.type.name === 'orderedList') {
+      info.hasNumberedLists = true;
+    }
+
+    if (node.type.name === 'blockquote') {
+      info.hasBlockquotes = true;
+    }
+
+    if (node.type.name === 'codeBlock') {
+      info.hasCodeBlocks = true;
+    }
+
+    // Check marks on text nodes
+    if (node.isText && node.marks.length > 0) {
+      const styles: string[] = [];
+      const textSnippet = node.text?.slice(0, 30) || '';
+
+      for (const mark of node.marks) {
+        if (mark.type.name === 'bold') {
+          info.hasBoldText = true;
+          styles.push('bold');
+        }
+        if (mark.type.name === 'italic') {
+          info.hasItalicText = true;
+          styles.push('italic');
+        }
+        if (mark.type.name === 'underline') {
+          info.hasUnderlineText = true;
+          styles.push('underline');
+        }
+        if (mark.type.name === 'link') {
+          info.hasLinks = true;
+          styles.push(`link(${mark.attrs.href})`);
+        }
+        if (mark.type.name === 'textStyle') {
+          if (mark.attrs.color) {
+            info.hasColoredText = true;
+            info.textColors.add(mark.attrs.color);
+            styles.push(`color:${mark.attrs.color}`);
+          }
+          if (mark.attrs.fontFamily) {
+            info.fontFamilies.add(mark.attrs.fontFamily);
+            styles.push(`font:${mark.attrs.fontFamily}`);
+          }
+          if (mark.attrs.fontSize) {
+            info.fontSizes.add(mark.attrs.fontSize);
+            styles.push(`size:${mark.attrs.fontSize}`);
+          }
+        }
+        if (mark.type.name === 'highlight') {
+          info.hasHighlightedText = true;
+          if (mark.attrs.color) {
+            info.highlightColors.add(mark.attrs.color);
+            styles.push(`highlight:${mark.attrs.color}`);
+          }
+        }
+      }
+
+      if (styles.length > 0 && textSnippet.trim()) {
+        info.formattedSections.push({ text: textSnippet, styles });
+      }
+    }
+
+    return true; // Continue traversing
+  });
+
+  return info;
+}
+
+// Format styling info for AI context
+function formatStylingForAI(info: DocumentStyleInfo): string {
+  if (!info.hasContent) {
+    return 'Document styling: (empty document, no styling applied)';
+  }
+
+  const lines: string[] = ['## Current Document Styling:'];
+
+  // Structure overview
+  lines.push(`\n### Structure:`);
+  lines.push(`- Paragraphs: ${info.totalParagraphs}`);
+  if (info.totalHeadings.length > 0) {
+    lines.push(`- Headings: ${info.totalHeadings.length}`);
+    for (const h of info.totalHeadings.slice(0, 10)) {
+      lines.push(`  - H${h.level}: "${h.text}${h.text.length >= 50 ? '...' : ''}"`);
+    }
+    if (info.totalHeadings.length > 10) {
+      lines.push(`  - ... and ${info.totalHeadings.length - 10} more headings`);
+    }
+  }
+
+  // Lists and blocks
+  const blocks: string[] = [];
+  if (info.hasBulletLists) blocks.push('bullet lists');
+  if (info.hasNumberedLists) blocks.push('numbered lists');
+  if (info.hasBlockquotes) blocks.push('blockquotes');
+  if (info.hasCodeBlocks) blocks.push('code blocks');
+  if (info.hasLinks) blocks.push('links');
+  if (blocks.length > 0) {
+    lines.push(`- Contains: ${blocks.join(', ')}`);
+  }
+
+  // Text formatting
+  const textStyles: string[] = [];
+  if (info.hasBoldText) textStyles.push('bold');
+  if (info.hasItalicText) textStyles.push('italic');
+  if (info.hasUnderlineText) textStyles.push('underline');
+  if (info.hasColoredText) textStyles.push('colored text');
+  if (info.hasHighlightedText) textStyles.push('highlighted text');
+  
+  if (textStyles.length > 0) {
+    lines.push(`\n### Text Formatting Applied:`);
+    lines.push(`- Styles used: ${textStyles.join(', ')}`);
+  }
+
+  // Alignments
+  if (info.textAlignments.size > 0) {
+    lines.push(`- Text alignments: ${Array.from(info.textAlignments).join(', ')}`);
+  }
+
+  // Fonts
+  if (info.fontFamilies.size > 0) {
+    lines.push(`- Font families: ${Array.from(info.fontFamilies).join(', ')}`);
+  }
+
+  // Font sizes
+  if (info.fontSizes.size > 0) {
+    lines.push(`- Font sizes: ${Array.from(info.fontSizes).join(', ')}`);
+  }
+
+  // Colors
+  if (info.textColors.size > 0) {
+    lines.push(`- Text colors: ${Array.from(info.textColors).slice(0, 5).join(', ')}${info.textColors.size > 5 ? ` (+${info.textColors.size - 5} more)` : ''}`);
+  }
+
+  if (info.highlightColors.size > 0) {
+    lines.push(`- Highlight colors: ${Array.from(info.highlightColors).slice(0, 5).join(', ')}${info.highlightColors.size > 5 ? ` (+${info.highlightColors.size - 5} more)` : ''}`);
+  }
+
+  // Sample formatted sections (show a few examples)
+  if (info.formattedSections.length > 0) {
+    lines.push(`\n### Sample Formatted Text:`);
+    const samples = info.formattedSections.slice(0, 5);
+    for (const section of samples) {
+      lines.push(`- "${section.text}${section.text.length >= 30 ? '...' : ''}" → [${section.styles.join(', ')}]`);
+    }
+    if (info.formattedSections.length > 5) {
+      lines.push(`- ... and ${info.formattedSections.length - 5} more formatted sections`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
 // Convert plain text with line breaks to HTML
 function textToHtml(text: string): string {
   // Split by double newlines for paragraphs
@@ -892,6 +1120,11 @@ Note: This is important context.
 9. NEVER use markdown syntax (# ## * ** _ etc.) in <write> content. Write plain text, then use <format> tags for styling.
 10. Use <search> when writing essays or content that needs citations, facts, or research - especially academic work.
 11. NEVER use em-dashes (—) or en-dashes (–). They are a major AI tell. Use commas, semicolons, parentheses, or separate sentences instead.
+12. You can see the document's current styling (fonts, colors, alignments, headings, etc.) in the "Current Document Styling" section. Use this to:
+    - Match existing formatting when adding new content
+    - Understand what formatting has already been applied
+    - Avoid re-applying formatting that already exists
+    - Answer questions about the document's appearance
 
 ## CRITICAL - When to use each action:
 - <write> ONLY APPENDS content to the end of the document. It NEVER replaces existing content.
@@ -918,7 +1151,7 @@ Turtles possess remarkable anatomy...</write><format type="h1" target="The Remar
 
 Notice: headings are written as plain text, then formatted with <format type="h1"> or <format type="h2"> tags.`;
 
-const CHAT_MODE_SYSTEM_PROMPT = `You are a writing assistant helping a user with their document. You can see the document content and discuss it with the user, but you CANNOT edit it directly in this mode.
+const CHAT_MODE_SYSTEM_PROMPT = `You are a writing assistant helping a user with their document. You can see the document content and its styling/formatting, but you CANNOT edit it directly in this mode.
 
 ## Sound Human
 - Be direct and casual. Use contractions.
@@ -930,7 +1163,8 @@ const CHAT_MODE_SYSTEM_PROMPT = `You are a writing assistant helping a user with
 
 In this CHAT MODE, you can:
 - Answer questions about the document
-- Provide feedback and suggestions
+- Describe the document's current formatting and styling (you can see fonts, colors, headings, alignments, bold/italic text, etc.)
+- Provide feedback and suggestions on both content and formatting
 - Discuss ideas and brainstorm
 - Explain concepts related to the writing
 - Help plan or outline content
@@ -1150,8 +1384,15 @@ export function useDocuments() {
       day: 'numeric' 
     });
     
+    // Extract document styling information if editor is available
+    let stylingContext = '';
+    if (editorRef.current) {
+      const stylingInfo = extractDocumentStyling(editorRef.current);
+      stylingContext = formatStylingForAI(stylingInfo);
+    }
+    
     // Build system message with optional search results
-    let systemContent = `${basePrompt}\n\nToday's Date: ${currentDate}\n\nDocument Title: "${activeDocument.title}"\n\nCurrent Document Content:\n${documentContext || '(empty document)'}`;
+    let systemContent = `${basePrompt}\n\nToday's Date: ${currentDate}\n\nDocument Title: "${activeDocument.title}"\n\nCurrent Document Content:\n${documentContext || '(empty document)'}\n\n${stylingContext}`;
     
     if (preSearchResults && preSearchResults.length > 0) {
       const formattedResults = formatSearchResultsForAI(preSearchResults);
