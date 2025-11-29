@@ -1643,6 +1643,7 @@ ${html}
               <p className="text-[10px] text-gray-400">Software Engineer / Lord and Savior</p>
             </div>
             <a href="https://www.buymeacoffee.com/maikopruett"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=maikopruett&button_colour=FFDD00&font_colour=000000&font_family=Poppins&outline_colour=000000&coffee_colour=ffffff" /></a>
+            <p className="text-[10px] pt-3 text-gray-400">Version 0.0.1</p>
           </div>
         )}
       </div>
