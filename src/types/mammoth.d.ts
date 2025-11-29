@@ -1,5 +1,5 @@
 declare module 'mammoth' {
-  interface ExtractRawTextResult {
+  interface MammothResult {
     value: string;
     messages: Array<{
       type: string;
@@ -11,6 +11,16 @@ declare module 'mammoth' {
     arrayBuffer: ArrayBuffer;
   }
 
-  export function extractRawText(input: ArrayBufferInput): Promise<ExtractRawTextResult>;
+  interface ConvertOptions {
+    styleMap?: string[];
+    includeDefaultStyleMap?: boolean;
+    convertImage?: (image: { read: (encoding: string) => Promise<Buffer> }) => Promise<{ src: string }>;
+    ignoreEmptyParagraphs?: boolean;
+    idPrefix?: string;
+    transformDocument?: (document: unknown) => unknown;
+  }
+
+  export function extractRawText(input: ArrayBufferInput): Promise<MammothResult>;
+  export function convertToHtml(input: ArrayBufferInput, options?: ConvertOptions): Promise<MammothResult>;
 }
 
