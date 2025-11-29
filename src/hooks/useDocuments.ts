@@ -1488,6 +1488,42 @@ export function useDocuments() {
       const searchResults = pendingSearchResultsRef.current;
       pendingSearchResultsRef.current = null; // Clear pending results
       
+      // Finalize the first message (search acknowledgment)
+      const firstMessageContent = streamingChatRef.current;
+      setDocuments(prev => prev.map(doc => 
+        doc.id === activeDocId 
+          ? { 
+              ...doc, 
+              chatMessages: doc.chatMessages.map(m => 
+                m.id === assistantId 
+                  ? { ...m, content: firstMessageContent, isWriting: false }
+                  : m
+              ),
+              updatedAt: Date.now() 
+            }
+          : doc
+      ));
+      
+      // Create a new assistant message for the follow-up response
+      const followUpAssistantId = crypto.randomUUID();
+      streamingChatRef.current = ''; // Reset for the new message
+      parseContextRef.current = createParseContext(); // Reset parse context for new message
+      
+      const followUpAssistantMessage: DocChatMessage = {
+        id: followUpAssistantId,
+        role: 'assistant',
+        content: '',
+        timestamp: Date.now(),
+        isWriting: false,
+      };
+      
+      // Add the new message placeholder
+      setDocuments(prev => prev.map(doc => 
+        doc.id === activeDocId 
+          ? { ...doc, chatMessages: [...doc.chatMessages, followUpAssistantMessage], updatedAt: Date.now() }
+          : doc
+      ));
+      
       // Format search results for context
       const formattedResults = formatSearchResultsForAI(searchResults);
       
@@ -1496,7 +1532,7 @@ export function useDocuments() {
         ...chatHistory,
         { 
           role: 'assistant' as const, 
-          content: streamingChatRef.current 
+          content: firstMessageContent 
         },
         { 
           role: 'user' as const, 
@@ -1507,10 +1543,205 @@ export function useDocuments() {
       // Create new abort controller for follow-up
       abortControllerRef.current = new AbortController();
       
+      // Create a new token handler for the follow-up that uses the new assistant ID
+      const followUpHandleToken = mode === 'chat' 
+        ? (token: string) => {
+            streamingChatRef.current += token;
+            setDocuments(prev => prev.map(doc => 
+              doc.id === activeDocId 
+                ? { 
+                    ...doc, 
+                    chatMessages: doc.chatMessages.map(m => 
+                      m.id === followUpAssistantId 
+                        ? { ...m, content: streamingChatRef.current }
+                        : m
+                    ),
+                    updatedAt: Date.now() 
+                  }
+                : doc
+            ));
+          }
+        : (token: string) => {
+            // Edit mode: parse for document editing tags
+            parseContextRef.current = parseToken(parseContextRef.current, token, {
+              onChatToken: (char) => {
+                streamingChatRef.current += char;
+                setDocuments(prev => prev.map(doc => 
+                  doc.id === activeDocId 
+                    ? { 
+                        ...doc, 
+                        chatMessages: doc.chatMessages.map(m => 
+                          m.id === followUpAssistantId 
+                            ? { ...m, content: streamingChatRef.current }
+                            : m
+                        ),
+                        updatedAt: Date.now() 
+                      }
+                    : doc
+                ));
+              },
+              onWriteStart: () => {
+                saveScrollPosition();
+                setIsWritingToDoc(true);
+                setDocuments(prev => prev.map(doc => 
+                  doc.id === activeDocId 
+                    ? { 
+                        ...doc, 
+                        chatMessages: doc.chatMessages.map(m => 
+                          m.id === followUpAssistantId 
+                            ? { ...m, isWriting: true }
+                            : m
+                        ),
+                        updatedAt: Date.now() 
+                      }
+                    : doc
+                ));
+              },
+              onWriteComplete: (writeContent) => {
+                if (editorRefStore.current) {
+                  const htmlContent = textToHtml(writeContent);
+                  editorRefStore.current.insertContent(htmlContent);
+                  restoreScrollPosition();
+                }
+              },
+              onEditStart: (findText) => {
+                saveScrollPosition();
+                setIsWritingToDoc(true);
+                setDocuments(prev => prev.map(doc => 
+                  doc.id === activeDocId 
+                    ? { 
+                        ...doc, 
+                        chatMessages: doc.chatMessages.map(m => 
+                          m.id === followUpAssistantId 
+                            ? { ...m, isWriting: true }
+                            : m
+                        ),
+                        updatedAt: Date.now() 
+                      }
+                    : doc
+                ));
+                
+                if (editorRefStore.current) {
+                  const editor = editorRefStore.current.getEditor();
+                  if (editor) {
+                    const doc = editor.state.doc;
+                    const result = findTextInDocument(doc, findText);
+                    
+                    if (result) {
+                      editor.chain().focus().setTextSelection({ from: result.from, to: result.to }).deleteSelection().run();
+                    }
+                  }
+                }
+              },
+              onEditComplete: (editContent) => {
+                if (editorRefStore.current) {
+                  editorRefStore.current.insertContent(editContent);
+                  restoreScrollPosition();
+                }
+              },
+              onFormat: (action) => {
+                saveScrollPosition();
+                setIsWritingToDoc(true);
+                setDocuments(prev => prev.map(doc => 
+                  doc.id === activeDocId 
+                    ? { 
+                        ...doc, 
+                        chatMessages: doc.chatMessages.map(m => 
+                          m.id === followUpAssistantId 
+                            ? { ...m, isWriting: true }
+                            : m
+                        ),
+                        updatedAt: Date.now() 
+                      }
+                    : doc
+                ));
+                
+                if (editorRefStore.current) {
+                  applyFormatting(editorRefStore.current, action);
+                  restoreScrollPosition();
+                }
+              },
+              onClear: () => {
+                saveScrollPosition();
+                setIsWritingToDoc(true);
+                setDocuments(prev => prev.map(doc => 
+                  doc.id === activeDocId 
+                    ? { 
+                        ...doc, 
+                        chatMessages: doc.chatMessages.map(m => 
+                          m.id === followUpAssistantId 
+                            ? { ...m, isWriting: true }
+                            : m
+                        ),
+                        updatedAt: Date.now() 
+                      }
+                    : doc
+                ));
+                
+                if (editorRefStore.current) {
+                  editorRefStore.current.clearContent();
+                  restoreScrollPosition();
+                }
+              },
+              onInsertStart: () => {
+                saveScrollPosition();
+                setIsWritingToDoc(true);
+                setDocuments(prev => prev.map(doc => 
+                  doc.id === activeDocId 
+                    ? { 
+                        ...doc, 
+                        chatMessages: doc.chatMessages.map(m => 
+                          m.id === followUpAssistantId 
+                            ? { ...m, isWriting: true }
+                            : m
+                        ),
+                        updatedAt: Date.now() 
+                      }
+                    : doc
+                ));
+              },
+              onInsertComplete: (insertContent, action) => {
+                if (editorRefStore.current) {
+                  const editor = editorRefStore.current.getEditor();
+                  if (editor) {
+                    const htmlContent = textToHtml(insertContent);
+                    
+                    if (action.position === 'start') {
+                      editor.chain().focus().setTextSelection(0).insertContent(htmlContent).run();
+                    } else if (action.position === 'end') {
+                      editorRefStore.current.insertContent(htmlContent);
+                    } else if (action.position === 'after' && action.target) {
+                      const doc = editor.state.doc;
+                      const result = findTextInDocument(doc, action.target);
+                      if (result) {
+                        editor.chain().focus().setTextSelection(result.to).insertContent(htmlContent).run();
+                      } else {
+                        editorRefStore.current.insertContent(htmlContent);
+                      }
+                    } else if (action.position === 'before' && action.target) {
+                      const doc = editor.state.doc;
+                      const result = findTextInDocument(doc, action.target);
+                      if (result) {
+                        editor.chain().focus().setTextSelection(result.from).insertContent(htmlContent).run();
+                      } else {
+                        editor.chain().focus().setTextSelection(0).insertContent(htmlContent).run();
+                      }
+                    }
+                    restoreScrollPosition();
+                  }
+                }
+              },
+              onSearch: () => {
+                // Ignore nested search requests in follow-up
+                console.log('[Search] Ignoring nested search in follow-up call');
+              },
+            });
+          };
+      
       // Make follow-up call
       console.log('[Search] Starting follow-up generation with', searchResults.length, 'sources');
       await sendMessageStream([systemMessage, ...followUpHistory], {
-        onToken: handleToken,
+        onToken: followUpHandleToken,
         onComplete: () => {
           console.log('[Search] Follow-up generation complete');
           if (editorRefStore.current) {
@@ -1527,7 +1758,7 @@ export function useDocuments() {
               ? { 
                   ...doc, 
                   chatMessages: doc.chatMessages.map(m => 
-                    m.id === assistantId 
+                    m.id === followUpAssistantId 
                       ? { ...m, content: streamingChatRef.current, isWriting: false }
                       : m
                   ),
