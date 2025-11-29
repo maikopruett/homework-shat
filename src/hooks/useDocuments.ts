@@ -21,8 +21,16 @@ export interface Document {
   updatedAt: number;
 }
 
+export interface PersonaSettings {
+  documentName: string;
+  documentContent: string;
+  includeStylization: boolean;
+  profileImage: string | null; // Base64 data URL
+}
+
 const STORAGE_KEY = 'homework-documents';
 const MODEL_STORAGE_KEY = 'homework-selected-model';
+const PERSONA_STORAGE_KEY = 'homework-persona-settings';
 const DEFAULT_MODEL = 'x-ai/grok-4.1-fast:free';
 
 // Parser state for handling structured AI responses
@@ -274,6 +282,27 @@ function loadDocuments(): Document[] {
 function saveDocuments(docs: Document[]) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(docs));
+  } catch {
+    // Storage full or unavailable
+  }
+}
+
+function loadPersona(): PersonaSettings | null {
+  try {
+    const stored = localStorage.getItem(PERSONA_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePersona(persona: PersonaSettings | null) {
+  try {
+    if (persona) {
+      localStorage.setItem(PERSONA_STORAGE_KEY, JSON.stringify(persona));
+    } else {
+      localStorage.removeItem(PERSONA_STORAGE_KEY);
+    }
   } catch {
     // Storage full or unavailable
   }
@@ -1173,6 +1202,183 @@ You CANNOT directly edit the document in this mode. If the user wants you to mak
 
 Respond naturally without any special tags or formatting. Just have a normal conversation.`;
 
+// Function to generate persona-aware system prompt
+function generatePersonaSystemPrompt(persona: PersonaSettings): string {
+  const stylizationInstructions = persona.includeStylization ? `
+## STYLIZATION ANALYSIS (Apply These Patterns)
+
+Analyze and replicate the following stylization patterns from the reference document:
+- Header/title formatting (sizes, capitalization, placement)
+- Paragraph structure and indentation
+- List formatting (bullet vs numbered, nesting)
+- Text alignment patterns
+- Spacing between sections
+- Any special formatting (bold, italic usage patterns)
+- Overall document structure and organization
+
+When writing, match these visual and structural patterns exactly.
+` : '';
+
+  return `You are a writing assistant that has been configured to write EXACTLY like a specific person. Your PRIMARY PURPOSE is to perfectly mimic their writing style, voice, and patterns.
+
+## YOUR IDENTITY
+
+You are now channeling the writing style of the person who wrote the reference document below. You must:
+1. Adopt their vocabulary, sentence patterns, and tone
+2. Use similar sentence lengths and structures
+3. Mirror their level of formality/informality
+4. Copy their use of punctuation and emphasis
+5. Match their paragraph organization style
+6. Replicate any distinctive phrases or expressions they use
+
+## REFERENCE DOCUMENT (Study This Carefully)
+
+The following is a sample of the person's writing. Analyze it deeply for:
+- Voice and tone (formal, casual, academic, conversational)
+- Sentence structure patterns (short punchy sentences? long flowing ones? mixed?)
+- Vocabulary choices (simple words? complex? field-specific jargon?)
+- Punctuation habits (heavy comma use? semicolons? parenthetical asides?)
+- Paragraph lengths and transitions
+- How they express opinions and arguments
+- Any quirks or distinctive patterns
+
+---BEGIN REFERENCE DOCUMENT---
+${persona.documentContent}
+---END REFERENCE DOCUMENT---
+${stylizationInstructions}
+## CRITICAL WRITING RULES
+
+1. NEVER sound like generic AI. Sound like the person from the reference document.
+2. If the reference shows informal writing, be informal. If formal, be formal.
+3. Match their sentence rhythm exactly. If they write short sentences, you write short sentences.
+4. Use their vocabulary level. Don't upgrade or downgrade it.
+5. Copy their punctuation style. If they love commas, use commas. If they avoid them, avoid them.
+6. Mirror how they structure arguments or present information.
+7. NEVER use em-dashes (—) or en-dashes (–) unless the reference document uses them frequently.
+
+## THINGS TO AVOID
+
+- Don't sound more polished or professional than the reference
+- Don't add filler phrases the reference doesn't use
+- Don't use transition words if the reference doesn't
+- Don't be more or less verbose than the reference style
+- Don't impose your own structure; follow theirs
+
+---
+
+CRITICAL: You MUST respond using this exact structured format with XML-like tags:
+
+## Available Actions:
+
+### 1. APPENDING new content (adds to end of document):
+<chat>Brief acknowledgment</chat><write>Content to ADD to document</write>
+NOTE: <write> only APPENDS. Use this for empty documents or adding new sections.
+
+### 2. INSERTING text at a specific position:
+<chat>Brief acknowledgment</chat><insert position="start">Content to insert</insert>
+<chat>Brief acknowledgment</chat><insert after="existing text">Content to insert after</insert>
+<chat>Brief acknowledgment</chat><insert before="existing text">Content to insert before</insert>
+NOTE: Use this to add content at the beginning, end, or relative to existing text WITHOUT replacing anything.
+
+### 3. EDITING specific text (find and replace):
+<chat>Brief acknowledgment</chat><edit find="exact text to find">Replacement text</edit>
+NOTE: Use this for small, targeted changes to existing content.
+
+### 4. REWRITING the entire document (clear and replace):
+<chat>Brief acknowledgment</chat><clear/><write>Complete new content</write>
+NOTE: ALWAYS use <clear/> first when rewriting, improving, or creating a new version of existing content. This prevents duplicate content.
+
+### 5. FORMATTING text (bold, italic, colors, headings, lists, etc.):
+<chat>Brief acknowledgment</chat><format type="TYPE" target="TARGET" value="VALUE"/>
+
+### 6. SEARCHING for information (research, facts, citations):
+<search query="your search query"/>
+NOTE: Use this when writing essays that need citations, verifying facts, or gathering current information.
+
+### Format Types Available:
+
+**Text Styling:**
+- bold, italic, underline, strikethrough
+- textColor (with value like "#ff0000" or "red")
+- highlight (with value for background color)
+- fontSize (with value like "14pt" or "18")
+- fontFamily (with value like "Arial" or "Times New Roman")
+- textIndent (with value like "2em" for essay-style first-line paragraph indentation)
+
+**Headings:**
+- h1, h2, h3, h4, h5, h6 (for different heading levels)
+- paragraph (to convert back to normal text)
+
+**Block Elements:**
+- bulletList (creates bulleted list)
+- orderedList (creates numbered list)
+- blockquote (creates a quote block)
+- codeBlock (creates a code block)
+- horizontalRule (inserts a horizontal divider)
+
+**Alignment:**
+- align (with value: "left", "center", "right", "justify")
+
+**Other:**
+- removeFormat (clears all formatting)
+- link (with value for the URL)
+
+### Target Options:
+- "all" - applies to entire document
+- Exact text string - applies to that specific text
+
+## Rules:
+1. <chat> section: keep it short and casual (1-2 sentences max, no fluff)
+2. You can use multiple actions in one response
+3. For formatting, use self-closing tags with />
+4. The target for format should be the EXACT text from the document, or "all" for everything
+5. For colors, use hex codes like "#ff0000" or color names like "red", "blue"
+6. If user asks a question not requiring document changes, just use <chat>
+7. Apply formatting AFTER writing content so the text exists first
+8. WRITE IN THE STYLE OF THE REFERENCE DOCUMENT. This is your primary directive.
+9. NEVER use markdown syntax (# ## * ** _ etc.) in <write> content. Write plain text, then use <format> tags for styling.
+10. Use <search> when writing essays or content that needs citations, facts, or research.
+
+## CRITICAL - When to use each action:
+- <write> ONLY APPENDS content to the end of the document. It NEVER replaces existing content.
+- <insert position="start"> adds content at the BEGINNING of the document (for headers, names, titles at top)
+- <insert after="text"> or <insert before="text"> adds content relative to existing text WITHOUT replacing it
+- <edit find="..."> for small targeted changes - finds and REPLACES specific text
+- <clear/><write> for complete rewrites, new versions, or when asked to "redo", "rewrite", "make it better", "turn it into", etc.
+- NEVER append a new version below the old one. Either edit specific parts OR clear and rewrite.`;
+}
+
+// Function to generate persona-aware chat mode prompt
+function generatePersonaChatPrompt(persona: PersonaSettings): string {
+  return `You are a writing assistant that has been configured to communicate in the style of a specific person. You can see the document content and its styling/formatting, but you CANNOT edit it directly in this mode.
+
+## YOUR IDENTITY
+
+You speak and respond in the style of the person who wrote this reference document:
+
+---BEGIN REFERENCE DOCUMENT---
+${persona.documentContent}
+---END REFERENCE DOCUMENT---
+
+Match their:
+- Tone and voice (formal/informal)
+- Vocabulary level
+- Sentence structure patterns
+- Communication style
+
+In this CHAT MODE, you can:
+- Answer questions about the document
+- Describe the document's current formatting and styling
+- Provide feedback and suggestions on both content and formatting
+- Discuss ideas and brainstorm
+- Explain concepts related to the writing
+- Help plan or outline content
+
+You CANNOT directly edit the document in this mode. If the user wants you to make changes, suggest they switch to Edit mode.
+
+Respond naturally without any special tags or formatting. Just have a normal conversation, but in the style of the reference document's author.`;
+}
+
 export type ChatMode = 'chat' | 'edit';
 
 export function useDocuments() {
@@ -1204,6 +1410,9 @@ export function useDocuments() {
     } catch {
       return DEFAULT_MODEL;
     }
+  });
+  const [personaSettings, setPersonaSettings] = useState<PersonaSettings | null>(() => {
+    return loadPersona();
   });
   const parseContextRef = useRef<ParseContext>(createParseContext());
   const editorRefStore = useRef<TiptapEditorHandle | null>(null);
@@ -1280,6 +1489,16 @@ export function useDocuments() {
       // Storage unavailable
     }
   }, [selectedModel]);
+
+  // Save persona settings to localStorage
+  useEffect(() => {
+    savePersona(personaSettings);
+  }, [personaSettings]);
+
+  // Update persona settings
+  const updatePersona = useCallback((settings: PersonaSettings | null) => {
+    setPersonaSettings(settings);
+  }, []);
 
   const createDocument = useCallback((title?: string) => {
     const newDoc = createNewDocument(title);
@@ -1428,7 +1647,18 @@ export function useDocuments() {
 
     // Include current document content in context
     const documentContext = editorRef.current?.getText() || activeDocument.content;
-    const basePrompt = mode === 'edit' ? SYSTEM_PROMPT : CHAT_MODE_SYSTEM_PROMPT;
+    
+    // Choose system prompt based on persona settings
+    let basePrompt: string;
+    if (personaSettings && personaSettings.documentContent) {
+      // Use persona-aware prompts
+      basePrompt = mode === 'edit' 
+        ? generatePersonaSystemPrompt(personaSettings) 
+        : generatePersonaChatPrompt(personaSettings);
+    } else {
+      // Use default prompts
+      basePrompt = mode === 'edit' ? SYSTEM_PROMPT : CHAT_MODE_SYSTEM_PROMPT;
+    }
     
     // Get current date for citations
     const today = new Date();
@@ -2161,7 +2391,7 @@ export function useDocuments() {
         abortControllerRef.current = null;
       },
     }, selectedModel, abortControllerRef.current.signal);
-  }, [activeDocument, activeDocId, isLoading, selectedModel, generateTitleFromMessage]);
+  }, [activeDocument, activeDocId, isLoading, selectedModel, personaSettings, generateTitleFromMessage]);
 
   const clearChat = useCallback(() => {
     setDocuments(prev => prev.map(doc => 
@@ -2189,6 +2419,8 @@ export function useDocuments() {
     error,
     selectedModel,
     setSelectedModel,
+    personaSettings,
+    updatePersona,
     createDocument,
     switchDocument,
     updateTitle,

@@ -1,8 +1,9 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import type { Document, ChatMode } from '../hooks/useDocuments';
+import type { Document, ChatMode, PersonaSettings } from '../hooks/useDocuments';
 import ChatSidebar from './ChatSidebar';
 import TiptapEditor, { type TiptapEditorHandle, type EditorState } from './TiptapEditor';
 import type { SearchResult } from '../api/exa';
+import { parseFile, getAcceptedFileTypes } from '../utils/fileParser';
 
 interface GoogleDocsUIProps {
   documents: Document[];
@@ -20,6 +21,8 @@ interface GoogleDocsUIProps {
   onUpdateTitle: (docId: string, title: string) => void;
   onUpdateContent: (docId: string, content: string) => void;
   onDeleteDocument: (docId: string) => void;
+  personaSettings: PersonaSettings | null;
+  onUpdatePersona: (settings: PersonaSettings | null) => void;
 }
 
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72];
@@ -74,6 +77,8 @@ export default function GoogleDocsUI({
   onUpdateTitle,
   onUpdateContent,
   onDeleteDocument,
+  personaSettings,
+  onUpdatePersona,
 }: GoogleDocsUIProps) {
   const editorRef = useRef<TiptapEditorHandle>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -81,9 +86,19 @@ export default function GoogleDocsUI({
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [personaModalOpen, setPersonaModalOpen] = useState(false);
+  const [personaIncludeStylization, setPersonaIncludeStylization] = useState(true);
+  const [personaDocName, setPersonaDocName] = useState<string | null>(null);
+  const [personaDocContent, setPersonaDocContent] = useState<string | null>(null);
+  const [personaUploadError, setPersonaUploadError] = useState<string | null>(null);
+  const [isDraggingPersonaFile, setIsDraggingPersonaFile] = useState(false);
   const fileMenuRef = useRef<HTMLDivElement>(null);
   const downloadMenuRef = useRef<HTMLDivElement>(null);
   const infoRef = useRef<HTMLDivElement>(null);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+  const profileImageInputRef = useRef<HTMLInputElement>(null);
+  const personaFileInputRef = useRef<HTMLInputElement>(null);
   
   // Toolbar state
   const [fontSize, setFontSize] = useState(11);
@@ -124,6 +139,9 @@ export default function GoogleDocsUI({
       }
       if (infoRef.current && !infoRef.current.contains(e.target as Node)) {
         setInfoOpen(false);
+      }
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+        setProfileMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -551,6 +569,114 @@ ${html}
     'h6': 'text-xs font-semibold',
   };
 
+  // Handle profile image upload
+  const handleProfileImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Check file size (max 500KB)
+    if (file.size > 500 * 1024) {
+      alert('Image too large. Please use an image under 500KB.');
+      return;
+    }
+    
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file.');
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      onUpdatePersona({
+        documentName: personaSettings?.documentName || '',
+        documentContent: personaSettings?.documentContent || '',
+        includeStylization: personaSettings?.includeStylization ?? true,
+        profileImage: base64,
+      });
+    };
+    reader.readAsDataURL(file);
+    setProfileMenuOpen(false);
+  }, [personaSettings, onUpdatePersona]);
+
+  // Handle persona document upload
+  const handlePersonaFileUpload = useCallback(async (file: File) => {
+    setPersonaUploadError(null);
+    
+    try {
+      const parsed = await parseFile(file);
+      setPersonaDocName(parsed.name);
+      setPersonaDocContent(parsed.content);
+    } catch (err) {
+      setPersonaUploadError(err instanceof Error ? err.message : 'Failed to parse file');
+    }
+  }, []);
+
+  const handlePersonaFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handlePersonaFileUpload(file);
+    }
+  }, [handlePersonaFileUpload]);
+
+  // Persona drag and drop handlers
+  const handlePersonaDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingPersonaFile(true);
+  }, []);
+
+  const handlePersonaDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingPersonaFile(false);
+  }, []);
+
+  const handlePersonaDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingPersonaFile(false);
+    
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      handlePersonaFileUpload(file);
+    }
+  }, [handlePersonaFileUpload]);
+
+  // Open persona modal and load current settings
+  const openPersonaModal = useCallback(() => {
+    setPersonaDocName(personaSettings?.documentName || null);
+    setPersonaDocContent(personaSettings?.documentContent || null);
+    setPersonaIncludeStylization(personaSettings?.includeStylization ?? true);
+    setPersonaUploadError(null);
+    setPersonaModalOpen(true);
+    setProfileMenuOpen(false);
+  }, [personaSettings]);
+
+  // Save persona settings
+  const savePersonaSettings = useCallback(() => {
+    if (personaDocName && personaDocContent) {
+      onUpdatePersona({
+        documentName: personaDocName,
+        documentContent: personaDocContent,
+        includeStylization: personaIncludeStylization,
+        profileImage: personaSettings?.profileImage || null,
+      });
+    }
+    setPersonaModalOpen(false);
+  }, [personaDocName, personaDocContent, personaIncludeStylization, personaSettings, onUpdatePersona]);
+
+  // Remove persona
+  const removePersona = useCallback(() => {
+    onUpdatePersona({
+      documentName: '',
+      documentContent: '',
+      includeStylization: true,
+      profileImage: personaSettings?.profileImage || null,
+    });
+    setPersonaDocName(null);
+    setPersonaDocContent(null);
+    setPersonaModalOpen(false);
+  }, [personaSettings, onUpdatePersona]);
+
   return (
     <div className="flex flex-col h-full bg-gray-50 font-['Roboto',_'RobotoDraft',_Helvetica,_Arial,_sans-serif] text-[13px] text-black">
       {/* Google Docs Chrome - Top Header Bar */}
@@ -739,26 +865,127 @@ ${html}
                   </div>
                 </div>
                 
-                {/* User Avatar */}
-                <div className="text-left">
+                {/* User Avatar with Menu */}
+                <div className="text-left relative" ref={profileMenuRef}>
                   <div className="align-middle whitespace-nowrap select-none items-center flex-none justify-end">
                     <div className="align-middle inline-block p-1">
                       <div className="relative">
-                        <a 
-                          className="align-middle outline-none w-10 h-10 inline-block rounded-full cursor-pointer p-1 transition-colors hover:bg-zinc-700/[0.08] focus:bg-zinc-700/[0.1] active:bg-zinc-700/[0.12]" 
-                          role="button" 
-                          aria-label="Google Account" 
-                          tabIndex={0}
+                        <button 
+                          className="align-middle outline-none w-10 h-10 inline-block rounded-full cursor-pointer p-1 transition-colors hover:bg-zinc-700/[0.08] focus:bg-zinc-700/[0.1] active:bg-zinc-700/[0.12] border-none bg-transparent" 
+                          aria-label="Profile settings" 
+                          onClick={() => setProfileMenuOpen(!profileMenuOpen)}
                         >
-                          <div className="w-8 h-8 relative">
-                            <svg width="32" height="32" viewBox="0 0 24 24" fill="#5f6368">
-                              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
-                            </svg>
+                          <div className="w-8 h-8 relative rounded-full overflow-hidden">
+                            {personaSettings?.profileImage ? (
+                              <img 
+                                src={personaSettings.profileImage} 
+                                alt="Profile" 
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <svg width="32" height="32" viewBox="0 0 24 24" fill="#5f6368">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+                              </svg>
+                            )}
                           </div>
-                        </a>
+                          {/* Persona active indicator */}
+                          {personaSettings?.documentContent && (
+                            <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-blue-500 rounded-full border-2 border-white flex items-center justify-center">
+                              <svg width="8" height="8" viewBox="0 0 24 24" fill="white">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                              </svg>
+                            </div>
+                          )}
+                        </button>
                       </div>
                     </div>
                   </div>
+                  
+                  {/* Profile Dropdown Menu */}
+                  {profileMenuOpen && (
+                    <div className="absolute top-full right-0 mt-1 bg-white rounded-lg shadow-[0_2px_10px_rgba(0,0,0,0.15),_0_4px_20px_rgba(0,0,0,0.1)] min-w-[220px] py-2 z-[1000] animate-[dropdown-in_0.15s_ease]">
+                      <div className="px-4 py-3 border-b border-gray-100">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 flex-shrink-0">
+                            {personaSettings?.profileImage ? (
+                              <img 
+                                src={personaSettings.profileImage} 
+                                alt="Profile" 
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <svg width="40" height="40" viewBox="0 0 24 24" fill="#5f6368">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+                              </svg>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">Your Profile</p>
+                            {personaSettings?.documentContent && (
+                              <p className="text-xs text-blue-600 truncate">Persona active</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="py-1">
+                        <button 
+                          className="flex items-center gap-3 w-full px-4 py-2.5 border-none bg-transparent text-gray-800 text-sm text-left cursor-pointer transition-colors hover:bg-gray-100"
+                          onClick={() => profileImageInputRef.current?.click()}
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            <circle cx="8.5" cy="8.5" r="1.5"/>
+                            <polyline points="21 15 16 10 5 21"/>
+                          </svg>
+                          Change profile picture
+                        </button>
+                        <input 
+                          ref={profileImageInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleProfileImageUpload}
+                        />
+                        
+                        <button 
+                          className="flex items-center gap-3 w-full px-4 py-2.5 border-none bg-transparent text-gray-800 text-sm text-left cursor-pointer transition-colors hover:bg-gray-100"
+                          onClick={openPersonaModal}
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                            <circle cx="12" cy="7" r="4"/>
+                          </svg>
+                          Persona settings
+                          {personaSettings?.documentContent && (
+                            <span className="ml-auto w-2 h-2 bg-blue-500 rounded-full" />
+                          )}
+                        </button>
+                      </div>
+                      
+                      {personaSettings?.profileImage && (
+                        <>
+                          <div className="h-px bg-gray-200 my-1" />
+                          <button 
+                            className="flex items-center gap-3 w-full px-4 py-2.5 border-none bg-transparent text-red-600 text-sm text-left cursor-pointer transition-colors hover:bg-gray-100"
+                            onClick={() => {
+                              onUpdatePersona({
+                                ...personaSettings,
+                                profileImage: null,
+                              });
+                              setProfileMenuOpen(false);
+                            }}
+                          >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polyline points="3 6 5 6 21 6"/>
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                            Remove profile picture
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1419,6 +1646,184 @@ ${html}
           </div>
         )}
       </div>
+
+      {/* Persona Settings Modal */}
+      {personaModalOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setPersonaModalOpen(false)}
+          />
+          
+          {/* Modal */}
+          <div className="relative bg-white rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.2)] w-full max-w-lg mx-4 animate-[modal-in_0.2s_ease]">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">Persona Settings</h2>
+              <button 
+                className="w-8 h-8 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+                onClick={() => setPersonaModalOpen(false)}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            
+            {/* Content */}
+            <div className="px-6 py-5">
+              <p className="text-sm text-gray-600 mb-4">
+                Upload a document that represents your writing style. The AI will analyze it and mimic how you write.
+              </p>
+              
+              {/* Upload Zone */}
+              <div 
+                className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer ${
+                  isDraggingPersonaFile 
+                    ? 'border-blue-500 bg-blue-50' 
+                    : personaDocName 
+                      ? 'border-green-300 bg-green-50' 
+                      : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                }`}
+                onDragOver={handlePersonaDragOver}
+                onDragLeave={handlePersonaDragLeave}
+                onDrop={handlePersonaDrop}
+                onClick={() => personaFileInputRef.current?.click()}
+              >
+                {personaDocName ? (
+                  <div className="flex flex-col items-center">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" className="mb-2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                      <polyline points="9 15 11 17 15 13"/>
+                    </svg>
+                    <p className="text-sm font-medium text-gray-900">{personaDocName}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {personaDocContent ? `${personaDocContent.split(/\s+/).length} words` : ''}
+                    </p>
+                    <button 
+                      className="mt-2 text-xs text-blue-600 hover:text-blue-700"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPersonaDocName(null);
+                        setPersonaDocContent(null);
+                      }}
+                    >
+                      Remove and upload different file
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" className="mb-2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                      <line x1="12" y1="18" x2="12" y2="12"/>
+                      <line x1="9" y1="15" x2="15" y2="15"/>
+                    </svg>
+                    <p className="text-sm font-medium text-gray-700">
+                      Drop a document here or click to upload
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Supports .txt, .pdf, .docx
+                    </p>
+                  </div>
+                )}
+              </div>
+              <input 
+                ref={personaFileInputRef}
+                type="file"
+                accept={getAcceptedFileTypes()}
+                className="hidden"
+                onChange={handlePersonaFileInputChange}
+              />
+              
+              {personaUploadError && (
+                <p className="mt-2 text-sm text-red-600">{personaUploadError}</p>
+              )}
+              
+              {/* Stylization Toggle */}
+              <div className="mt-5 flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Include formatting style</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    AI will also mimic document structure, headings, and text formatting
+                  </p>
+                </div>
+                <button
+                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                    personaIncludeStylization ? 'bg-blue-600' : 'bg-gray-300'
+                  }`}
+                  onClick={() => setPersonaIncludeStylization(!personaIncludeStylization)}
+                >
+                  <div 
+                    className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      personaIncludeStylization ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+              
+              {/* Current Persona Info */}
+              {personaSettings?.documentContent && !personaDocName && (
+                <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-start gap-3">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" className="flex-shrink-0 mt-0.5">
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="12" y1="16" x2="12" y2="12"/>
+                      <line x1="12" y1="8" x2="12.01" y2="8"/>
+                    </svg>
+                    <div>
+                      <p className="text-sm font-medium text-blue-900">Active Persona</p>
+                      <p className="text-xs text-blue-700 mt-0.5">
+                        Currently using: {personaSettings.documentName || 'Uploaded document'}
+                      </p>
+                      <p className="text-xs text-blue-600 mt-0.5">
+                        {personaSettings.documentContent.split(/\s+/).length} words • 
+                        Formatting {personaSettings.includeStylization ? 'enabled' : 'disabled'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Footer */}
+            <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+              <div>
+                {(personaSettings?.documentContent || personaDocName) && (
+                  <button 
+                    className="text-sm text-red-600 hover:text-red-700 font-medium"
+                    onClick={removePersona}
+                  >
+                    Remove persona
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <button 
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+                  onClick={() => setPersonaModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button 
+                  className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors ${
+                    personaDocName && personaDocContent
+                      ? 'bg-blue-600 hover:bg-blue-700'
+                      : 'bg-gray-300 cursor-not-allowed'
+                  }`}
+                  onClick={savePersonaSettings}
+                  disabled={!personaDocName || !personaDocContent}
+                >
+                  Save persona
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

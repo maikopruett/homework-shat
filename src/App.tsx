@@ -10,6 +10,8 @@ export default function App() {
     isSearching,
     selectedModel,
     setSelectedModel,
+    personaSettings,
+    updatePersona,
     createDocument,
     switchDocument,
     updateTitle,
@@ -37,6 +39,8 @@ export default function App() {
       onUpdateTitle={updateTitle}
       onUpdateContent={updateContent}
       onDeleteDocument={deleteDocument}
+      personaSettings={personaSettings}
+      onUpdatePersona={updatePersona}
     />
   );
 }
