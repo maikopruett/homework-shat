@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { sendMessageStream } from '../api/openrouter';
 import type { ChatMessage } from '../api/openrouter';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
+import { searchExa, formatSearchResultsForAI, type SearchResult } from '../api/exa';
 
 export interface DocChatMessage {
   id: string;
@@ -38,6 +39,10 @@ interface InsertAction {
   target?: string; // For before/after positioning
 }
 
+interface SearchAction {
+  query: string;
+}
+
 interface ParseContext {
   state: ParseState;
   buffer: string;
@@ -49,6 +54,7 @@ interface ParseContext {
   formatAction: FormatAction | null;
   insertAction: InsertAction | null;
   insertContent: string;
+  searchAction: SearchAction | null;
 }
 
 function createParseContext(): ParseContext {
@@ -63,6 +69,7 @@ function createParseContext(): ParseContext {
     formatAction: null,
     insertAction: null,
     insertContent: '',
+    searchAction: null,
   };
 }
 
@@ -80,6 +87,7 @@ function parseToken(
     onClear: () => void;
     onInsertStart: (action: InsertAction) => void;
     onInsertComplete: (content: string, action: InsertAction) => void;
+    onSearch: (query: string) => void;
   }
 ): ParseContext {
   const newCtx = { ...ctx };
@@ -141,6 +149,15 @@ function parseToken(
           } else if (tagLower === 'clear' || tagLower === 'clear/') {
             // Self-closing clear tag - clear the document
             callbacks.onClear();
+            newCtx.state = 'idle';
+          } else if (tagLower.startsWith('search')) {
+            // Parse search tag: <search query="..."/>
+            const queryMatch = newCtx.tagBuffer.match(/query=["']([^"']+)["']/i);
+            if (queryMatch) {
+              const searchQuery = queryMatch[1];
+              // Search is always self-closing
+              callbacks.onSearch(searchQuery);
+            }
             newCtx.state = 'idle';
           } else if (tagLower.startsWith('insert')) {
             // Parse insert tag: <insert position="start">, <insert after="text">, <insert before="text">
@@ -630,6 +647,19 @@ NOTE: ALWAYS use <clear/> first when rewriting, improving, or creating a new ver
 ### 5. FORMATTING text (bold, italic, colors, headings, lists, etc.):
 <chat>Brief acknowledgment</chat><format type="TYPE" target="TARGET" value="VALUE"/>
 
+### 6. SEARCHING for information (research, facts, citations):
+<search query="your search query"/>
+NOTE: Use this when writing essays that need citations, verifying facts, or gathering current information. Search results will be provided back to you, then you can write content using those sources. ALWAYS use search for:
+- Essays requiring academic sources or citations
+- Topics that need current/recent information
+- Fact-checking or verification
+- Research papers or reports
+
+**Example - Essay with research:**
+<chat>Let me research that first.</chat><search query="climate change effects on coral reefs scientific studies"/>
+
+After receiving search results, you'll write the content using those sources and cite them properly with URLs.
+
 ### Format Types Available:
 
 **Text Styling:**
@@ -707,6 +737,7 @@ Note: This is important context.
 7. Apply formatting AFTER writing content so the text exists first
 8. Sound human. Be direct, skip the pleasantries, and don't over-explain.
 9. NEVER use markdown syntax (# ## * ** _ etc.) in <write> content. Write plain text, then use <format> tags for styling.
+10. Use <search> when writing essays or content that needs citations, facts, or research - especially academic work.
 
 ## CRITICAL - When to use each action:
 - <write> ONLY APPENDS content to the end of the document. It NEVER replaces existing content.
@@ -790,6 +821,8 @@ export function useDocuments() {
   
   const [isLoading, setIsLoading] = useState(false);
   const [isWritingToDoc, setIsWritingToDoc] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     try {
@@ -802,6 +835,8 @@ export function useDocuments() {
   const editorRefStore = useRef<TiptapEditorHandle | null>(null);
   const streamingChatRef = useRef<string>('');
   const abortControllerRef = useRef<AbortController | null>(null);
+  const searchInProgressRef = useRef<boolean>(false);
+  const pendingSearchResultsRef = useRef<SearchResult[] | null>(null);
 
   const activeDocument = documents.find(d => d.id === activeDocId) || documents[0];
 
@@ -897,8 +932,25 @@ export function useDocuments() {
     return title || 'Untitled document';
   }, []);
 
+  // Perform a search and return results
+  const performSearch = useCallback(async (query: string): Promise<SearchResult[]> => {
+    setIsSearching(true);
+    setError(null);
+    try {
+      const results = await searchExa(query);
+      setSearchResults(results);
+      return results;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Search failed';
+      setError(message);
+      return [];
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
   // Send a chat message with direct document editing capability
-  const sendMessage = useCallback(async (content: string, editorRef: React.RefObject<TiptapEditorHandle | null>, mode: ChatMode = 'edit') => {
+  const sendMessage = useCallback(async (content: string, editorRef: React.RefObject<TiptapEditorHandle | null>, mode: ChatMode = 'edit', preSearchResults?: SearchResult[]) => {
     if (!content.trim() || isLoading || !activeDocument) return;
 
     // Auto-generate title if document is untitled and this is the first message
@@ -926,6 +978,8 @@ export function useDocuments() {
     const assistantId = crypto.randomUUID();
     parseContextRef.current = createParseContext();
     streamingChatRef.current = '';
+    searchInProgressRef.current = false;
+    pendingSearchResultsRef.current = null;
 
     // Add user message
     setDocuments(prev => prev.map(doc => 
@@ -947,9 +1001,26 @@ export function useDocuments() {
     // Include current document content in context
     const documentContext = editorRef.current?.getText() || activeDocument.content;
     const basePrompt = mode === 'edit' ? SYSTEM_PROMPT : CHAT_MODE_SYSTEM_PROMPT;
+    
+    // Get current date for citations
+    const today = new Date();
+    const currentDate = today.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    
+    // Build system message with optional search results
+    let systemContent = `${basePrompt}\n\nToday's Date: ${currentDate}\n\nDocument Title: "${activeDocument.title}"\n\nCurrent Document Content:\n${documentContext || '(empty document)'}`;
+    
+    if (preSearchResults && preSearchResults.length > 0) {
+      const formattedResults = formatSearchResultsForAI(preSearchResults);
+      systemContent += `\n\n## Research Results (use these for citations):\n${formattedResults}\n\nIMPORTANT: Use the research results above to support your writing with accurate information and proper citations. Include URLs when citing sources. For "Accessed" dates in citations, use today's date: ${currentDate}.`;
+    }
+    
     const systemMessage: ChatMessage = {
       role: 'system' as const,
-      content: `${basePrompt}\n\nDocument Title: "${activeDocument.title}"\n\nCurrent Document Content:\n${documentContext || '(empty document)'}`,
+      content: systemContent,
     };
 
     // Create placeholder for streaming message
@@ -1161,6 +1232,88 @@ export function useDocuments() {
                 }
               }
             },
+            onSearch: async (query) => {
+              // Prevent duplicate search calls
+              if (searchInProgressRef.current) {
+                console.log('[Search] Already in progress, skipping duplicate call');
+                return;
+              }
+              
+              console.log('[Search] AI requested search for:', query);
+              searchInProgressRef.current = true;
+              setIsSearching(true);
+              
+              // Update chat to show searching
+              const searchingMsg = ` Searching for sources...`;
+              streamingChatRef.current += searchingMsg;
+              setDocuments(prev => prev.map(doc => 
+                doc.id === activeDocId 
+                  ? { 
+                      ...doc, 
+                      chatMessages: doc.chatMessages.map(m => 
+                        m.id === assistantId 
+                          ? { ...m, content: streamingChatRef.current }
+                          : m
+                      ),
+                      updatedAt: Date.now() 
+                    }
+                  : doc
+              ));
+              
+              try {
+                console.log('[Search] Calling Exa API...');
+                const results = await searchExa(query);
+                console.log('[Search] Got results:', results.length, 'sources');
+                setSearchResults(results);
+                
+                // Store results for the follow-up call
+                pendingSearchResultsRef.current = results;
+                
+                // Update chat to show search completed
+                const resultSummary = results.length > 0 
+                  ? ` Found ${results.length} sources. Now writing with citations...`
+                  : ' No results found.';
+                streamingChatRef.current = streamingChatRef.current.replace(searchingMsg, resultSummary);
+                setDocuments(prev => prev.map(doc => 
+                  doc.id === activeDocId 
+                    ? { 
+                        ...doc, 
+                        chatMessages: doc.chatMessages.map(m => 
+                          m.id === assistantId 
+                            ? { ...m, content: streamingChatRef.current }
+                            : m
+                        ),
+                        updatedAt: Date.now() 
+                      }
+                    : doc
+                ));
+                
+                // Abort current stream - we'll make a follow-up call with search results
+                console.log('[Search] Aborting current stream to make follow-up call with results');
+                if (abortControllerRef.current) {
+                  abortControllerRef.current.abort();
+                }
+              } catch (err) {
+                console.error('[Search] Failed:', err);
+                streamingChatRef.current = streamingChatRef.current.replace(searchingMsg, ' Search failed.');
+                setDocuments(prev => prev.map(doc => 
+                  doc.id === activeDocId 
+                    ? { 
+                        ...doc, 
+                        chatMessages: doc.chatMessages.map(m => 
+                          m.id === assistantId 
+                            ? { ...m, content: streamingChatRef.current }
+                            : m
+                        ),
+                        updatedAt: Date.now() 
+                      }
+                    : doc
+                ));
+              } finally {
+                setIsSearching(false);
+                searchInProgressRef.current = false;
+              }
+            },
           });
         };
 
@@ -1196,7 +1349,79 @@ export function useDocuments() {
         setIsWritingToDoc(false);
         abortControllerRef.current = null;
       },
-      onError: (err) => {
+      onError: async (err) => {
+        // Check if we aborted due to a search - if so, make follow-up call with results
+        if (err.name === 'AbortError' && pendingSearchResultsRef.current) {
+          console.log('[Search] Making follow-up call with search results');
+          const searchResults = pendingSearchResultsRef.current;
+          pendingSearchResultsRef.current = null; // Clear pending results
+          
+          // Format search results for context
+          const formattedResults = formatSearchResultsForAI(searchResults);
+          
+          // Build follow-up messages
+          const followUpHistory: ChatMessage[] = [
+            ...chatHistory,
+            { 
+              role: 'assistant' as const, 
+              content: streamingChatRef.current 
+            },
+            { 
+              role: 'user' as const, 
+              content: `Here are the research results I found:\n\n${formattedResults}\n\nNow please write the content using these sources. Include proper citations with URLs where appropriate.` 
+            }
+          ];
+          
+          // Create new abort controller for follow-up
+          abortControllerRef.current = new AbortController();
+          
+          // Make follow-up call
+          console.log('[Search] Starting follow-up generation with', searchResults.length, 'sources');
+          await sendMessageStream([systemMessage, ...followUpHistory], {
+            onToken: handleToken,
+            onComplete: () => {
+              console.log('[Search] Follow-up generation complete');
+              if (editorRefStore.current) {
+                const finalContent = editorRefStore.current.getHTML();
+                setDocuments(prev => prev.map(doc => 
+                  doc.id === activeDocId 
+                    ? { ...doc, content: finalContent, updatedAt: Date.now() }
+                    : doc
+                ));
+              }
+              
+              setDocuments(prev => prev.map(doc => 
+                doc.id === activeDocId 
+                  ? { 
+                      ...doc, 
+                      chatMessages: doc.chatMessages.map(m => 
+                        m.id === assistantId 
+                          ? { ...m, content: streamingChatRef.current, isWriting: false }
+                          : m
+                      ),
+                      updatedAt: Date.now() 
+                    }
+                  : doc
+              ));
+              
+              setIsLoading(false);
+              setIsWritingToDoc(false);
+              abortControllerRef.current = null;
+            },
+            onError: (followUpErr) => {
+              console.error('[Search] Follow-up generation error:', followUpErr);
+              if (followUpErr.name !== 'AbortError') {
+                setError(followUpErr.message);
+              }
+              setIsLoading(false);
+              setIsWritingToDoc(false);
+              abortControllerRef.current = null;
+            },
+          }, selectedModel, abortControllerRef.current.signal);
+          
+          return; // Don't run the normal abort handling
+        }
+        
         // Don't show error or remove message if it was aborted by user
         if (err.name === 'AbortError') {
           // Keep the partial response, just mark as complete
@@ -1230,7 +1455,7 @@ export function useDocuments() {
         abortControllerRef.current = null;
       },
     }, selectedModel, abortControllerRef.current.signal);
-  }, [activeDocument, activeDocId, isLoading, selectedModel]);
+  }, [activeDocument, activeDocId, isLoading, selectedModel, generateTitleFromMessage]);
 
   const clearChat = useCallback(() => {
     setDocuments(prev => prev.map(doc => 
@@ -1253,6 +1478,8 @@ export function useDocuments() {
     activeDocId,
     isLoading,
     isWritingToDoc,
+    isSearching,
+    searchResults,
     error,
     selectedModel,
     setSelectedModel,
@@ -1264,5 +1491,6 @@ export function useDocuments() {
     sendMessage,
     clearChat,
     stopGeneration,
+    performSearch,
   };
 }

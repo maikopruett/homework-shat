@@ -2,15 +2,18 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import type { Document, ChatMode } from '../hooks/useDocuments';
 import ChatSidebar from './ChatSidebar';
 import TiptapEditor, { type TiptapEditorHandle } from './TiptapEditor';
+import type { SearchResult } from '../api/exa';
 
 interface GoogleDocsUIProps {
   documents: Document[];
   activeDocument: Document | undefined;
   isLoading: boolean;
   isWritingToDoc: boolean;
+  isSearching: boolean;
   selectedModel: string;
   onModelChange: (model: string) => void;
-  onSendMessage: (text: string, editorRef: React.RefObject<TiptapEditorHandle | null>, mode: ChatMode) => void;
+  onSendMessage: (text: string, editorRef: React.RefObject<TiptapEditorHandle | null>, mode: ChatMode, searchResults?: SearchResult[]) => void;
+  onSearch: (query: string) => Promise<SearchResult[]>;
   onStopGeneration: () => void;
   onCreateDocument: (title?: string) => void;
   onSwitchDocument: (docId: string) => void;
@@ -60,9 +63,11 @@ export default function GoogleDocsUI({
   activeDocument,
   isLoading,
   isWritingToDoc,
+  isSearching,
   selectedModel,
   onModelChange,
   onSendMessage,
+  onSearch,
   onStopGeneration,
   onCreateDocument,
   onSwitchDocument,
@@ -443,8 +448,8 @@ ${html}
   };
 
   // Handle sending message with editor ref
-  const handleSendMessage = useCallback((text: string, mode: ChatMode) => {
-    onSendMessage(text, editorRef, mode);
+  const handleSendMessage = useCallback((text: string, mode: ChatMode, searchResults?: SearchResult[]) => {
+    onSendMessage(text, editorRef, mode, searchResults);
   }, [onSendMessage]);
 
   // Handle keyboard shortcuts
@@ -1288,12 +1293,14 @@ ${html}
           activeDocument={activeDocument}
           isLoading={isLoading}
           isWritingToDoc={isWritingToDoc}
+          isSearching={isSearching}
           selectedModel={selectedModel}
           onModelChange={onModelChange}
           chatMode={chatMode}
           onModeChange={setChatMode}
           isOpen={chatOpen}
           onSendMessage={handleSendMessage}
+          onSearch={onSearch}
           onStopGeneration={onStopGeneration}
           onCreateDocument={onCreateDocument}
           onSwitchDocument={onSwitchDocument}

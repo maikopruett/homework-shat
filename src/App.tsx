@@ -7,6 +7,7 @@ export default function App() {
     activeDocument,
     isLoading,
     isWritingToDoc,
+    isSearching,
     selectedModel,
     setSelectedModel,
     createDocument,
@@ -16,6 +17,7 @@ export default function App() {
     deleteDocument,
     sendMessage,
     stopGeneration,
+    performSearch,
   } = useDocuments();
 
   return (
@@ -24,9 +26,11 @@ export default function App() {
       activeDocument={activeDocument}
       isLoading={isLoading}
       isWritingToDoc={isWritingToDoc}
+      isSearching={isSearching}
       selectedModel={selectedModel}
       onModelChange={setSelectedModel}
       onSendMessage={sendMessage}
+      onSearch={performSearch}
       onStopGeneration={stopGeneration}
       onCreateDocument={createDocument}
       onSwitchDocument={switchDocument}

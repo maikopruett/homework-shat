@@ -2,18 +2,21 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import type { Document, ChatMode } from '../hooks/useDocuments';
 import { AVAILABLE_MODELS } from '../api/openrouter';
 import { parseFile, isValidFileType, getAcceptedFileTypes, type ParsedFile } from '../utils/fileParser';
+import type { SearchResult } from '../api/exa';
 
 interface ChatSidebarProps {
   documents: Document[];
   activeDocument: Document | undefined;
   isLoading: boolean;
   isWritingToDoc: boolean;
+  isSearching: boolean;
   selectedModel: string;
   onModelChange: (model: string) => void;
   chatMode: ChatMode;
   onModeChange: (mode: ChatMode) => void;
   isOpen: boolean;
-  onSendMessage: (text: string, mode: ChatMode) => void;
+  onSendMessage: (text: string, mode: ChatMode, searchResults?: SearchResult[]) => void;
+  onSearch: (query: string) => Promise<SearchResult[]>;
   onStopGeneration: () => void;
   onCreateDocument: (title?: string) => void;
   onSwitchDocument: (docId: string) => void;
@@ -23,12 +26,14 @@ export default function ChatSidebar({
   documents,
   activeDocument,
   isLoading,
+  isSearching,
   selectedModel,
   onModelChange,
   chatMode,
   onModeChange,
   isOpen,
   onSendMessage,
+  onSearch,
   onStopGeneration,
   onCreateDocument,
   onSwitchDocument,
@@ -46,6 +51,7 @@ export default function ChatSidebar({
   const [attachedFiles, setAttachedFiles] = useState<ParsedFile[]>([]);
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [researchEnabled, setResearchEnabled] = useState(false);
   const dragCounter = useRef(0);
 
   // Close menus when clicking outside
@@ -142,9 +148,9 @@ export default function ChatSidebar({
     setAttachedFiles(prev => prev.filter((_, i) => i !== index));
   }, []);
 
-  const handleChatSubmit = (e: React.FormEvent) => {
+  const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((chatInput.trim() || attachedFiles.length > 0) && !isLoading) {
+    if ((chatInput.trim() || attachedFiles.length > 0) && !isLoading && !isSearching) {
       // Build message with attached file contents
       let message = chatInput.trim();
       
@@ -160,7 +166,16 @@ export default function ChatSidebar({
         }
       }
       
-      onSendMessage(message, chatMode);
+      // If research mode is enabled, search first then send with results
+      if (researchEnabled && message) {
+        const searchQuery = message.slice(0, 200); // Use first 200 chars as search query
+        const searchResults = await onSearch(searchQuery);
+        onSendMessage(message, chatMode, searchResults);
+        setResearchEnabled(false); // Turn off after use
+      } else {
+        onSendMessage(message, chatMode);
+      }
+      
       setChatInput('');
       setAttachedFiles([]);
     }
@@ -490,6 +505,40 @@ export default function ChatSidebar({
             </div>
           )}
 
+          {/* Searching indicator */}
+          {isSearching && (
+            <div className="px-4 pt-2 text-xs text-purple-600 flex items-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-pulse">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="m21 21-4.35-4.35"/>
+              </svg>
+              Researching topic...
+            </div>
+          )}
+
+          {/* Research mode indicator */}
+          {researchEnabled && !isSearching && (
+            <div className="px-4 pt-2 flex items-center gap-2">
+              <span className="text-xs text-purple-600 flex items-center gap-1.5 bg-purple-50 px-2 py-1 rounded-full">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8"/>
+                  <path d="m21 21-4.35-4.35"/>
+                </svg>
+                Research mode
+                <button 
+                  type="button" 
+                  onClick={() => setResearchEnabled(false)}
+                  className="ml-1 hover:text-purple-800"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </span>
+            </div>
+          )}
+
           <form className="flex items-center gap-2 px-3 py-3" onSubmit={handleChatSubmit}>
             {/* Hidden file input */}
             <input
@@ -526,6 +575,23 @@ export default function ChatSidebar({
                   <button
                     type="button"
                     onClick={() => {
+                      setResearchEnabled(!researchEnabled);
+                      setToolsMenuOpen(false);
+                    }}
+                    disabled={isSearching}
+                    className={`flex items-center gap-3 w-full px-4 py-2.5 border-none text-left cursor-pointer transition-colors text-sm disabled:opacity-50 ${
+                      researchEnabled ? 'bg-purple-50 text-purple-700' : 'bg-transparent text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="11" cy="11" r="8"/>
+                      <path d="m21 21-4.35-4.35"/>
+                    </svg>
+                    {researchEnabled ? 'Research enabled' : 'Research first'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
                       fileInputRef.current?.click();
                       setToolsMenuOpen(false);
                     }}
@@ -559,11 +625,12 @@ export default function ChatSidebar({
                 disabled={isLoading}
                 className="flex-1 border-none bg-transparent text-sm font-[inherit] resize-none outline-none max-h-[100px] leading-snug text-black placeholder:text-gray-400 py-1"
               />
-              {isLoading ? (
+              {isLoading || isSearching ? (
                 <button 
                   type="button"
                   onClick={onStopGeneration}
-                  className="w-8 h-8 border-none bg-red-500 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-red-600 ml-2"
+                  disabled={isSearching}
+                  className="w-8 h-8 border-none bg-red-500 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed ml-2"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                     <rect x="6" y="6" width="12" height="12" rx="2" />
@@ -573,7 +640,9 @@ export default function ChatSidebar({
                 <button 
                   type="submit" 
                   disabled={!chatInput.trim() && attachedFiles.length === 0}
-                  className="w-8 h-8 border-none bg-blue-600 rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed ml-2"
+                  className={`w-8 h-8 border-none rounded-full cursor-pointer flex items-center justify-center text-white transition-all flex-shrink-0 disabled:bg-gray-300 disabled:cursor-not-allowed ml-2 ${
+                    researchEnabled ? 'bg-purple-600 hover:bg-purple-700' : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 19V5M5 12l7-7 7 7"/>
