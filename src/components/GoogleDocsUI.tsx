@@ -3,7 +3,7 @@ import type { Document, ChatMode, PersonaSettings, EssayTemplate } from '../hook
 import ChatSidebar from './ChatSidebar';
 import TiptapEditor, { type TiptapEditorHandle, type EditorState } from './TiptapEditor';
 import type { SearchResult } from '../api/exa';
-import { parseFile, getAcceptedFileTypes } from '../utils/fileParser';
+import { parseFile, getAcceptedFileTypes, isValidFileType, type ParsedFile } from '../utils/fileParser';
 
 interface GoogleDocsUIProps {
   documents: Document[];
@@ -112,6 +112,11 @@ export default function GoogleDocsUI({
   const [importError, setImportError] = useState<string | null>(null);
   const [pendingImportContent, setPendingImportContent] = useState<string | null>(null);
   const [importPreviousDocId, setImportPreviousDocId] = useState<string | null>(null);
+  // Ghost mode features
+  const [ghostTemplateModalOpen, setGhostTemplateModalOpen] = useState(false);
+  const [ghostAttachedFiles, setGhostAttachedFiles] = useState<ParsedFile[]>([]);
+  const [isParsingGhostFile, setIsParsingGhostFile] = useState(false);
+  const [ghostFileError, setGhostFileError] = useState<string | null>(null);
   const fileMenuRef = useRef<HTMLDivElement>(null);
   const downloadMenuRef = useRef<HTMLDivElement>(null);
   const infoRef = useRef<HTMLDivElement>(null);
@@ -119,6 +124,8 @@ export default function GoogleDocsUI({
   const profileImageInputRef = useRef<HTMLInputElement>(null);
   const personaFileInputRef = useRef<HTMLInputElement>(null);
   const documentImportInputRef = useRef<HTMLInputElement>(null);
+  const ghostFileInputRef = useRef<HTMLInputElement>(null);
+  const ghostTemplateModalRef = useRef<HTMLDivElement>(null);
   
   // Toolbar state
   const [fontSize, setFontSize] = useState(11);
@@ -194,6 +201,9 @@ export default function GoogleDocsUI({
       }
       if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
         setProfileMenuOpen(false);
+      }
+      if (ghostTemplateModalRef.current && !ghostTemplateModalRef.current.contains(e.target as Node)) {
+        setGhostTemplateModalOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -601,7 +611,19 @@ ${html}
           break;
         case 'u':
           e.preventDefault();
-          handleUnderline();
+          // In ghost mode, Ctrl+U opens file upload, otherwise underline
+          if (ghostModeEnabled) {
+            ghostFileInputRef.current?.click();
+          } else {
+            handleUnderline();
+          }
+          break;
+        case 't':
+          // Ctrl+T opens template selection in ghost mode
+          if (ghostModeEnabled) {
+            e.preventDefault();
+            setGhostTemplateModalOpen(true);
+          }
           break;
         case 'z':
           if (e.shiftKey) {
@@ -615,7 +637,7 @@ ${html}
           break;
       }
     }
-  }, []);
+  }, [ghostModeEnabled, handleBold, handleItalic, handleUnderline, handleRedo, handleInsertLink]);
 
   // Handle Escape key to close modals
   useEffect(() => {
@@ -627,11 +649,36 @@ ${html}
         if (personaModalOpen) {
           setPersonaModalOpen(false);
         }
+        if (ghostTemplateModalOpen) {
+          setGhostTemplateModalOpen(false);
+        }
       }
     };
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [helpModalOpen, personaModalOpen]);
+  }, [helpModalOpen, personaModalOpen, ghostTemplateModalOpen]);
+
+  // Handle ghost mode keyboard shortcuts (Ctrl+T, Ctrl+U)
+  useEffect(() => {
+    if (!ghostModeEnabled) return;
+
+    const handleGhostShortcuts = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+        if (e.key.toLowerCase() === 't') {
+          e.preventDefault();
+          e.stopPropagation();
+          setGhostTemplateModalOpen(true);
+        } else if (e.key.toLowerCase() === 'u') {
+          e.preventDefault();
+          e.stopPropagation();
+          ghostFileInputRef.current?.click();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleGhostShortcuts, true); // Use capture phase
+    return () => document.removeEventListener('keydown', handleGhostShortcuts, true);
+  }, [ghostModeEnabled]);
 
   const currentHeadingLabel = HEADING_OPTIONS.find(h => h.value === headingStyle)?.label || 'Normal text';
 
@@ -796,6 +843,49 @@ ${html}
     setPersonaModalOpen(false);
   }, [personaSettings, onUpdatePersona]);
 
+  // Ghost mode file processing
+  const processGhostFile = useCallback(async (files: FileList | File[]) => {
+    const validFiles = Array.from(files).filter(isValidFileType);
+    
+    if (validFiles.length === 0) {
+      setGhostFileError('Please select .txt, .pdf, .docx, or .html files');
+      setTimeout(() => setGhostFileError(null), 3000);
+      return;
+    }
+
+    setIsParsingGhostFile(true);
+    setGhostFileError(null);
+
+    try {
+      const parsed = await Promise.all(validFiles.map(parseFile));
+      setGhostAttachedFiles(prev => [...prev, ...parsed]);
+      
+      // Auto-send file content to AI
+      const fileContents = parsed.map(f => 
+        `--- ${f.name} ---\n${f.content}`
+      ).join('\n\n');
+      
+      const message = `Here are my assignment requirements:\n\n${fileContents}`;
+      onSendMessage(message, editorRef, 'edit');
+      
+      // Clear attached files after sending
+      setGhostAttachedFiles([]);
+    } catch (err) {
+      setGhostFileError(err instanceof Error ? err.message : 'Failed to parse file');
+      setTimeout(() => setGhostFileError(null), 3000);
+    } finally {
+      setIsParsingGhostFile(false);
+    }
+  }, [onSendMessage]);
+
+  const handleGhostFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processGhostFile(e.target.files);
+    }
+    // Reset input so the same file can be selected again
+    e.target.value = '';
+  }, [processGhostFile]);
+
   return (
     <div className="flex flex-col h-full bg-gray-50 font-['Roboto',_'RobotoDraft',_Helvetica,_Arial,_sans-serif] text-[13px] text-black">
       {/* Google Docs Chrome - Top Header Bar */}
@@ -916,6 +1006,27 @@ ${html}
                       >
                         <path d="M12 2C7.58 2 4 5.58 4 10v8c0 1.1.9 2 2 2h1c0-1.1.9-2 2-2s2 .9 2 2h2c0-1.1.9-2 2-2s2 .9 2 2h1c1.1 0 2-.9 2-2v-8c0-4.42-3.58-8-8-8zm-2 9c-.83 0-1.5-.67-1.5-1.5S9.17 8 10 8s1.5.67 1.5 1.5S10.83 11 10 11zm4 0c-.83 0-1.5-.67-1.5-1.5S13.17 8 14 8s1.5.67 1.5 1.5S14.83 11 14 11z"/>
                       </svg>
+                      
+                      {/* Template indicator */}
+                      {selectedTemplate && (
+                        <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-amber-500 rounded-full border-2 border-white flex items-center justify-center" title={`Template: ${selectedTemplate.name}`}>
+                          <svg width="8" height="8" viewBox="0 0 24 24" fill="white">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            <path d="M3 9h18"/>
+                            <path d="M9 21V9"/>
+                          </svg>
+                        </div>
+                      )}
+                      
+                      {/* File upload indicator */}
+                      {(ghostAttachedFiles.length > 0 || isParsingGhostFile) && (
+                        <div className={`absolute ${selectedTemplate ? '-bottom-0.5 -left-0.5' : '-bottom-0.5 -right-0.5'} w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white flex items-center justify-center`} title={isParsingGhostFile ? 'Processing file...' : `File uploaded: ${ghostAttachedFiles.map(f => f.name).join(', ')}`}>
+                          <svg width="8" height="8" viewBox="0 0 24 24" fill="white">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                          </svg>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1825,6 +1936,15 @@ ${html}
         />
       </div>
 
+      {/* Hidden file inputs (always accessible) */}
+      <input 
+        ref={ghostFileInputRef}
+        type="file"
+        accept={getAcceptedFileTypes()}
+        className="hidden"
+        onChange={handleGhostFileInputChange}
+      />
+
       {/* Info Button - Bottom Left */}
       <div className="fixed bottom-4 left-4 z-50" ref={infoRef}>
         <button
@@ -2018,6 +2138,156 @@ ${html}
         </div>
       )}
 
+      {/* Ghost Mode Template Selection Modal */}
+      {ghostTemplateModalOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setGhostTemplateModalOpen(false)}
+          />
+          
+          {/* Modal */}
+          <div 
+            ref={ghostTemplateModalRef}
+            className="relative bg-white rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.2)] w-full max-w-[320px] mx-4 max-h-[80%] flex flex-col animate-[modal-in_0.2s_ease]"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 flex-shrink-0">
+              <h3 className="font-semibold text-gray-800">Select Template</h3>
+              <button
+                type="button"
+                onClick={() => setGhostTemplateModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-2">
+              {/* Clear template option */}
+              {selectedTemplate && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectTemplate(null);
+                    setGhostTemplateModalOpen(false);
+                  }}
+                  className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left cursor-pointer transition-colors hover:bg-gray-100 text-red-600 text-sm mb-1"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                  Clear template
+                </button>
+              )}
+              
+              {/* Preset templates */}
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 py-2">
+                Preset Formats
+              </div>
+              {templates.filter(t => t.type === 'preset').map(template => (
+                <button
+                  key={template.id}
+                  type="button"
+                  onClick={() => {
+                    onSelectTemplate(template);
+                    setGhostTemplateModalOpen(false);
+                  }}
+                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left cursor-pointer transition-colors text-sm ${
+                    selectedTemplate?.id === template.id 
+                      ? 'bg-amber-50 text-amber-700' 
+                      : 'hover:bg-gray-100 text-gray-700'
+                  }`}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-500 flex-shrink-0">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    <path d="M3 9h18"/>
+                    <path d="M9 21V9"/>
+                  </svg>
+                  <span className="flex-1 truncate">{template.name}</span>
+                  {selectedTemplate?.id === template.id && (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-600 flex-shrink-0">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                  )}
+                </button>
+              ))}
+              
+              {/* Custom templates */}
+              {templates.filter(t => t.type === 'custom').length > 0 && (
+                <>
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 py-2 mt-2">
+                    Your Templates
+                  </div>
+                  {templates.filter(t => t.type === 'custom').map(template => (
+                    <div 
+                      key={template.id}
+                      className={`flex items-center gap-2 w-full px-3 py-2.5 rounded-lg transition-colors ${
+                        selectedTemplate?.id === template.id 
+                          ? 'bg-amber-50' 
+                          : 'hover:bg-gray-100'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectTemplate(template);
+                          setGhostTemplateModalOpen(false);
+                        }}
+                        className={`flex items-center gap-3 flex-1 text-left cursor-pointer text-sm ${
+                          selectedTemplate?.id === template.id 
+                            ? 'text-amber-700' 
+                            : 'text-gray-700'
+                        }`}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-500 flex-shrink-0">
+                          <rect x="3" y="3" width="18" height="18" rx="2"/>
+                          <path d="M3 9h18"/>
+                          <path d="M9 21V9"/>
+                        </svg>
+                        <span className="flex-1 truncate">{template.name}</span>
+                        {selectedTemplate?.id === template.id && (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-600 flex-shrink-0">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteTemplate(template.id);
+                        }}
+                        className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                        title="Delete template"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="3 6 5 6 21 6"/>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
+              
+              {templates.filter(t => t.type === 'custom').length === 0 && (
+                <div className="text-xs text-gray-400 px-3 py-4 text-center">
+                  No custom templates yet.<br/>
+                  Save your documents as templates to reuse them.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Help Modal */}
       {helpModalOpen && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
@@ -2086,6 +2356,8 @@ ${html}
                   <li>Enable via Profile menu → Ghost Mode</li>
                   <li>Type in your document normally</li>
                   <li>Press <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-xs font-mono">Ctrl+Enter</kbd> to send</li>
+                  <li>Press <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-xs font-mono">Ctrl+T</kbd> to quickly select a template</li>
+                  <li>Press <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-xs font-mono">Ctrl+U</kbd> to upload a requirements file</li>
                   <li>Look for the ghost icon indicator in the top bar when active</li>
                 </ul>
               </div>
@@ -2231,6 +2503,17 @@ ${html}
                     <span className="text-sm text-gray-700">Import Document</span>
                     <kbd className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">Ctrl+O</kbd>
                   </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-700">Select Template (Ghost Mode)</span>
+                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">Ctrl+T</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-700">Upload File (Ghost Mode)</span>
+                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">Ctrl+U</kbd>
+                  </div>
+                  <p className="text-xs text-gray-500 italic mt-2">
+                    Note: Ghost Mode shortcuts (Ctrl+T, Ctrl+U) only work when Ghost Mode is enabled.
+                  </p>
                 </div>
               </div>
 
