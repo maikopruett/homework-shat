@@ -116,7 +116,6 @@ export default function GoogleDocsUI({
   const [ghostTemplateModalOpen, setGhostTemplateModalOpen] = useState(false);
   const [ghostAttachedFiles, setGhostAttachedFiles] = useState<ParsedFile[]>([]);
   const [isParsingGhostFile, setIsParsingGhostFile] = useState(false);
-  const [ghostFileError, setGhostFileError] = useState<string | null>(null);
   const fileMenuRef = useRef<HTMLDivElement>(null);
   const downloadMenuRef = useRef<HTMLDivElement>(null);
   const infoRef = useRef<HTMLDivElement>(null);
@@ -848,13 +847,11 @@ ${html}
     const validFiles = Array.from(files).filter(isValidFileType);
     
     if (validFiles.length === 0) {
-      setGhostFileError('Please select .txt, .pdf, .docx, or .html files');
-      setTimeout(() => setGhostFileError(null), 3000);
+      alert('Please select .txt, .pdf, .docx, or .html files');
       return;
     }
 
     setIsParsingGhostFile(true);
-    setGhostFileError(null);
 
     try {
       const parsed = await Promise.all(validFiles.map(parseFile));
@@ -871,8 +868,7 @@ ${html}
       // Clear attached files after sending
       setGhostAttachedFiles([]);
     } catch (err) {
-      setGhostFileError(err instanceof Error ? err.message : 'Failed to parse file');
-      setTimeout(() => setGhostFileError(null), 3000);
+      alert(err instanceof Error ? err.message : 'Failed to parse file');
     } finally {
       setIsParsingGhostFile(false);
     }
