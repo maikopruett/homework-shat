@@ -1,8 +1,9 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import type { Document, ChatMode } from '../hooks/useDocuments';
+import type { Document, ChatMode, EssayTemplate } from '../hooks/useDocuments';
 import { AVAILABLE_MODELS } from '../api/openrouter';
 import { parseFile, isValidFileType, getAcceptedFileTypes, type ParsedFile } from '../utils/fileParser';
 import type { SearchResult } from '../api/exa';
+import type { TiptapEditorHandle } from './TiptapEditor';
 
 interface ChatSidebarProps {
   documents: Document[];
@@ -20,6 +21,13 @@ interface ChatSidebarProps {
   onStopGeneration: () => void;
   onCreateDocument: (title?: string) => void;
   onSwitchDocument: (docId: string) => void;
+  // Template props
+  templates: EssayTemplate[];
+  selectedTemplate: EssayTemplate | null;
+  onSelectTemplate: (template: EssayTemplate | null) => void;
+  onSaveAsTemplate: (name: string) => void;
+  onDeleteTemplate: (templateId: string) => void;
+  editorRef: React.RefObject<TiptapEditorHandle | null>;
 }
 
 export default function ChatSidebar({
@@ -37,6 +45,12 @@ export default function ChatSidebar({
   onStopGeneration,
   onCreateDocument,
   onSwitchDocument,
+  templates,
+  selectedTemplate,
+  onSelectTemplate,
+  onSaveAsTemplate,
+  onDeleteTemplate,
+  editorRef,
 }: ChatSidebarProps) {
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
@@ -52,6 +66,10 @@ export default function ChatSidebar({
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [researchEnabled, setResearchEnabled] = useState(false);
+  const [showTemplateMenu, setShowTemplateMenu] = useState(false);
+  const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const templateMenuRef = useRef<HTMLDivElement>(null);
   const dragCounter = useRef(0);
 
   // Close menus when clicking outside
@@ -62,6 +80,9 @@ export default function ChatSidebar({
       }
       if (toolsMenuRef.current && !toolsMenuRef.current.contains(e.target as Node)) {
         setToolsMenuOpen(false);
+      }
+      if (templateMenuRef.current && !templateMenuRef.current.contains(e.target as Node)) {
+        setShowTemplateMenu(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -207,6 +228,14 @@ export default function ChatSidebar({
 
   const handleNewDocument = () => {
     onCreateDocument();
+  };
+
+  const handleSaveTemplate = () => {
+    if (templateName.trim() && editorRef.current) {
+      onSaveAsTemplate(templateName.trim());
+      setTemplateName('');
+      setShowSaveTemplateDialog(false);
+    }
   };
 
   const chatMessages = activeDocument?.chatMessages || [];
@@ -539,6 +568,30 @@ export default function ChatSidebar({
             </div>
           )}
 
+          {/* Template indicator */}
+          {selectedTemplate && (
+            <div className="px-4 pt-2 flex items-center gap-2">
+              <span className="text-xs text-amber-700 flex items-center gap-1.5 bg-amber-50 px-2 py-1 rounded-full">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <path d="M3 9h18"/>
+                  <path d="M9 21V9"/>
+                </svg>
+                {selectedTemplate.name}
+                <button 
+                  type="button" 
+                  onClick={() => onSelectTemplate(null)}
+                  className="ml-1 hover:text-amber-900"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </span>
+            </div>
+          )}
+
           <form className="flex items-center gap-2 px-3 py-3" onSubmit={handleChatSubmit}>
             {/* Hidden file input */}
             <input
@@ -571,7 +624,7 @@ export default function ChatSidebar({
               
               {/* Tools menu popup */}
               {toolsMenuOpen && (
-                <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.15),_0_0_0_1px_rgba(0,0,0,0.05)] min-w-[180px] py-2 z-[1000] animate-[dropdown-in_0.15s_ease]">
+                <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.15),_0_0_0_1px_rgba(0,0,0,0.05)] min-w-[200px] py-2 z-[1000] animate-[dropdown-in_0.15s_ease]">
                   <button
                     type="button"
                     onClick={() => {
@@ -602,6 +655,45 @@ export default function ChatSidebar({
                       <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
                     </svg>
                     Attach file
+                  </button>
+                  
+                  {/* Divider */}
+                  <div className="h-px bg-gray-200 my-2" />
+                  
+                  {/* Use Template button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowTemplateMenu(true);
+                      setToolsMenuOpen(false);
+                    }}
+                    className={`flex items-center gap-3 w-full px-4 py-2.5 border-none text-left cursor-pointer transition-colors text-sm ${
+                      selectedTemplate ? 'bg-amber-50 text-amber-700' : 'bg-transparent text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="3" width="18" height="18" rx="2"/>
+                      <path d="M3 9h18"/>
+                      <path d="M9 21V9"/>
+                    </svg>
+                    {selectedTemplate ? `Template: ${selectedTemplate.name.slice(0, 12)}${selectedTemplate.name.length > 12 ? '...' : ''}` : 'Use template'}
+                  </button>
+                  
+                  {/* Save as Template button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSaveTemplateDialog(true);
+                      setToolsMenuOpen(false);
+                    }}
+                    className="flex items-center gap-3 w-full px-4 py-2.5 border-none bg-transparent text-left cursor-pointer transition-colors hover:bg-gray-100 text-gray-700 text-sm"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                      <polyline points="17 21 17 13 7 13 7 21"/>
+                      <polyline points="7 3 7 8 15 8"/>
+                    </svg>
+                    Save as template
                   </button>
                 </div>
               )}
@@ -652,6 +744,211 @@ export default function ChatSidebar({
             </div>
           </form>
         </div>
+
+        {/* Template Selection Modal */}
+        {showTemplateMenu && (
+          <div className="absolute inset-0 bg-black/20 z-[100] flex items-center justify-center p-4 backdrop-blur-[1px]">
+            <div 
+              ref={templateMenuRef}
+              className="bg-white rounded-xl shadow-2xl w-full max-w-[320px] max-h-[80%] flex flex-col animate-[dropdown-in_0.15s_ease]"
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                <h3 className="font-semibold text-gray-800">Select Template</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowTemplateMenu(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-2">
+                {/* Clear template option */}
+                {selectedTemplate && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectTemplate(null);
+                      setShowTemplateMenu(false);
+                    }}
+                    className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left cursor-pointer transition-colors hover:bg-gray-100 text-red-600 text-sm mb-1"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18"/>
+                      <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                    Clear template
+                  </button>
+                )}
+                
+                {/* Preset templates */}
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 py-2">
+                  Preset Formats
+                </div>
+                {templates.filter(t => t.type === 'preset').map(template => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => {
+                      onSelectTemplate(template);
+                      setShowTemplateMenu(false);
+                    }}
+                    className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left cursor-pointer transition-colors text-sm ${
+                      selectedTemplate?.id === template.id 
+                        ? 'bg-amber-50 text-amber-700' 
+                        : 'hover:bg-gray-100 text-gray-700'
+                    }`}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-500 flex-shrink-0">
+                      <rect x="3" y="3" width="18" height="18" rx="2"/>
+                      <path d="M3 9h18"/>
+                      <path d="M9 21V9"/>
+                    </svg>
+                    <span className="flex-1 truncate">{template.name}</span>
+                    {selectedTemplate?.id === template.id && (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-600 flex-shrink-0">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                    )}
+                  </button>
+                ))}
+                
+                {/* Custom templates */}
+                {templates.filter(t => t.type === 'custom').length > 0 && (
+                  <>
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 py-2 mt-2">
+                      Your Templates
+                    </div>
+                    {templates.filter(t => t.type === 'custom').map(template => (
+                      <div 
+                        key={template.id}
+                        className={`flex items-center gap-2 w-full px-3 py-2.5 rounded-lg transition-colors ${
+                          selectedTemplate?.id === template.id 
+                            ? 'bg-amber-50' 
+                            : 'hover:bg-gray-100'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectTemplate(template);
+                            setShowTemplateMenu(false);
+                          }}
+                          className={`flex items-center gap-3 flex-1 text-left cursor-pointer text-sm ${
+                            selectedTemplate?.id === template.id 
+                              ? 'text-amber-700' 
+                              : 'text-gray-700'
+                          }`}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-500 flex-shrink-0">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            <path d="M3 9h18"/>
+                            <path d="M9 21V9"/>
+                          </svg>
+                          <span className="flex-1 truncate">{template.name}</span>
+                          {selectedTemplate?.id === template.id && (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-600 flex-shrink-0">
+                              <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteTemplate(template.id);
+                          }}
+                          className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                          title="Delete template"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </>
+                )}
+                
+                {templates.filter(t => t.type === 'custom').length === 0 && (
+                  <div className="text-xs text-gray-400 px-3 py-4 text-center">
+                    No custom templates yet.<br/>
+                    Save your documents as templates to reuse them.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Save as Template Dialog */}
+        {showSaveTemplateDialog && (
+          <div className="absolute inset-0 bg-black/20 z-[100] flex items-center justify-center p-4 backdrop-blur-[1px]">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-[320px] animate-[dropdown-in_0.15s_ease]">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                <h3 className="font-semibold text-gray-800">Save as Template</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSaveTemplateDialog(false);
+                    setTemplateName('');
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+              
+              <div className="p-4">
+                <p className="text-sm text-gray-600 mb-3">
+                  Save your current document's formatting and structure as a reusable template.
+                </p>
+                <input
+                  type="text"
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && templateName.trim()) {
+                      handleSaveTemplate();
+                    }
+                  }}
+                  placeholder="Template name..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                  autoFocus
+                />
+                
+                <div className="flex gap-2 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSaveTemplateDialog(false);
+                      setTemplateName('');
+                    }}
+                    className="flex-1 px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveTemplate}
+                    disabled={!templateName.trim()}
+                    className="flex-1 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Save Template
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
     </div>
   );
 }

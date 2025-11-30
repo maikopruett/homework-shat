@@ -28,9 +28,20 @@ export interface PersonaSettings {
   profileImage: string | null; // Base64 data URL
 }
 
+export interface EssayTemplate {
+  id: string;
+  name: string;
+  type: 'preset' | 'custom';
+  htmlContent: string;           // Full HTML of the template document
+  formattingInstructions: string; // AI-readable formatting guide extracted from the doc
+  createdAt: number;
+}
+
 const STORAGE_KEY = 'homework-documents';
 const MODEL_STORAGE_KEY = 'homework-selected-model';
 const PERSONA_STORAGE_KEY = 'homework-persona-settings';
+const GHOST_MODE_STORAGE_KEY = 'homework-ghost-mode';
+const TEMPLATES_STORAGE_KEY = 'homework-essay-templates';
 const DEFAULT_MODEL = 'x-ai/grok-4.1-fast:free';
 
 // Parser state for handling structured AI responses
@@ -306,6 +317,127 @@ function savePersona(persona: PersonaSettings | null) {
   } catch {
     // Storage full or unavailable
   }
+}
+
+function loadCustomTemplates(): EssayTemplate[] {
+  try {
+    const stored = localStorage.getItem(TEMPLATES_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomTemplates(templates: EssayTemplate[]) {
+  try {
+    localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
+  } catch {
+    // Storage full or unavailable
+  }
+}
+
+// Preset APA Format Template (7th Edition)
+const APA_TEMPLATE: EssayTemplate = {
+  id: 'preset-apa',
+  name: 'APA Format (7th Edition)',
+  type: 'preset',
+  htmlContent: `<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt"><strong>Title of Your Paper</strong></span></span></p>
+<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Your Name</span></span></p>
+<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Department, Institution</span></span></p>
+<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Course Number: Course Name</span></span></p>
+<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Instructor Name</span></span></p>
+<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Due Date</span></span></p>
+<p><span style="font-family: Times New Roman"><span style="font-size: 12pt"></span></span></p>
+<p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">This is the first paragraph of your essay. In APA format, the first line of each paragraph should be indented 0.5 inches. The entire paper should be double-spaced and use Times New Roman 12-point font. Do not add extra space between paragraphs.</span></span></p>
+<p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Continue your essay with additional paragraphs. Each paragraph should develop a specific point and flow logically from one to the next. Remember to cite your sources using in-text citations like (Author, Year) or Author (Year) stated that...</span></span></p>
+<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt"><strong>References</strong></span></span></p>
+<p style="text-indent: -0.5in; padding-left: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Author, A. A. (Year). Title of article. <em>Journal Name, Volume</em>(Issue), Page range. https://doi.org/xxxxx</span></span></p>
+<p style="text-indent: -0.5in; padding-left: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Author, B. B., & Author, C. C. (Year). <em>Title of book</em>. Publisher.</span></span></p>`,
+  formattingInstructions: `## APA FORMAT (7th Edition) TEMPLATE INSTRUCTIONS:
+
+### DOCUMENT STRUCTURE (in order):
+1. TITLE - Centered, Bold, Times New Roman 12pt
+2. AUTHOR NAME - Centered, Times New Roman 12pt
+3. DEPARTMENT AND INSTITUTION - Centered, Times New Roman 12pt
+4. COURSE INFO - Centered, Times New Roman 12pt
+5. INSTRUCTOR NAME - Centered, Times New Roman 12pt
+6. DUE DATE - Centered, Times New Roman 12pt
+7. BLANK LINE
+8. BODY PARAGRAPHS - First-line indent 0.5in, Times New Roman 12pt
+9. REFERENCES HEADING - Centered, Bold, Times New Roman 12pt
+10. REFERENCE ENTRIES - Hanging indent (first line flush left, subsequent lines indented)
+
+### FORMATTING RULES:
+- Font: Times New Roman, 12pt throughout
+- Title: Centered, Bold
+- All header info (name, institution, etc.): Centered, NOT bold
+- Body paragraphs: Left-aligned with 0.5 inch first-line indent
+- References heading: Centered, Bold
+- Reference entries: Hanging indent (reverse indent)
+- In-text citations: (Author, Year) format
+
+### HOW TO APPLY WITH FORMAT TAGS:
+1. Write content first with <write> or <clear/><write>
+2. Apply font: <format type="fontFamily" target="all" value="Times New Roman"/>
+3. Apply size: <format type="fontSize" target="all" value="12pt"/>
+4. Make title bold: <format type="bold" target="TITLE_TEXT"/>
+5. Center title block: <format type="align" target="TITLE_TEXT" value="center"/>
+6. Add paragraph indents: <format type="textIndent" target="PARAGRAPH_TEXT" value="0.5in"/>`,
+  createdAt: 0,
+};
+
+// Preset MLA Format Template (9th Edition)
+const MLA_TEMPLATE: EssayTemplate = {
+  id: 'preset-mla',
+  name: 'MLA Format (9th Edition)',
+  type: 'preset',
+  htmlContent: `<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">Your Name</span></span></p>
+<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">Professor's Name</span></span></p>
+<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">Course Name</span></span></p>
+<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">Date (Day Month Year)</span></span></p>
+<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Title of Your Essay</span></span></p>
+<p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">This is the first paragraph of your essay. In MLA format, the first line of each paragraph should be indented half an inch (0.5 inches). The entire paper should be double-spaced and use Times New Roman 12-point font. The title should be centered but not bold, italicized, or underlined.</span></span></p>
+<p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Continue with your body paragraphs here. Each paragraph should make a clear point and support your thesis. When citing sources, use parenthetical citations with the author's last name and page number, like this (Smith 42). If you mention the author in the sentence, only include the page number: Smith argues that "quote here" (42).</span></span></p>
+<p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Add more paragraphs as needed to develop your argument. Each paragraph should transition smoothly to the next and contribute to your overall thesis.</span></span></p>
+<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Works Cited</span></span></p>
+<p style="text-indent: -0.5in; padding-left: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Last Name, First Name. "Title of Article." <em>Journal Name</em>, vol. #, no. #, Year, pp. #-#.</span></span></p>
+<p style="text-indent: -0.5in; padding-left: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Last Name, First Name. <em>Title of Book</em>. Publisher, Year.</span></span></p>`,
+  formattingInstructions: `## MLA FORMAT (9th Edition) TEMPLATE INSTRUCTIONS:
+
+### DOCUMENT STRUCTURE (in order):
+1. YOUR NAME - Left-aligned, Times New Roman 12pt
+2. PROFESSOR'S NAME - Left-aligned, Times New Roman 12pt
+3. COURSE NAME - Left-aligned, Times New Roman 12pt
+4. DATE - Left-aligned, Times New Roman 12pt (format: Day Month Year, e.g., 15 November 2024)
+5. TITLE - Centered, Times New Roman 12pt, NOT bold/italic/underlined
+6. BODY PARAGRAPHS - First-line indent 0.5in, Times New Roman 12pt
+7. WORKS CITED HEADING - Centered, Times New Roman 12pt, NOT bold
+8. WORKS CITED ENTRIES - Hanging indent (first line flush left, subsequent lines indented)
+
+### FORMATTING RULES:
+- Font: Times New Roman, 12pt throughout
+- Header block (name, professor, course, date): Left-aligned, single info per line
+- Title: Centered, NO bold, NO italics, NO underline
+- Body paragraphs: Left-aligned with 0.5 inch first-line indent
+- Works Cited heading: Centered, NOT bold (unlike APA)
+- Works Cited entries: Hanging indent
+- In-text citations: (Author Page) format, no comma
+
+### HOW TO APPLY WITH FORMAT TAGS:
+1. Write content first with <write> or <clear/><write>
+2. Apply font: <format type="fontFamily" target="all" value="Times New Roman"/>
+3. Apply size: <format type="fontSize" target="all" value="12pt"/>
+4. Center title: <format type="align" target="TITLE_TEXT" value="center"/>
+5. Center Works Cited: <format type="align" target="Works Cited" value="center"/>
+6. Add paragraph indents: <format type="textIndent" target="PARAGRAPH_TEXT" value="0.5in"/>
+7. Italicize book/journal titles in citations as needed`,
+  createdAt: 0,
+};
+
+// Get all templates (presets + custom)
+function getAllTemplates(): EssayTemplate[] {
+  const customTemplates = loadCustomTemplates();
+  return [APA_TEMPLATE, MLA_TEMPLATE, ...customTemplates];
 }
 
 function createNewDocument(title: string = 'Untitled document'): Document {
@@ -642,36 +774,259 @@ function formatStylingForAI(info: DocumentStyleInfo): string {
   return lines.join('\n');
 }
 
-// Convert plain text with line breaks to HTML
-function textToHtml(text: string): string {
-  // Split by double newlines for paragraphs
-  const paragraphs = text.split(/\n\n+/);
+// Generate AI-readable template instructions from HTML content
+// This analyzes the document structure and produces step-by-step formatting instructions
+function generateTemplateInstructions(htmlContent: string): string {
+  // Parse HTML to extract structure
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlContent, 'text/html');
+  const body = doc.body;
   
-  return paragraphs.map(p => {
-    // Handle bullet points
-    if (p.trim().startsWith('•') || p.trim().startsWith('-') || p.trim().startsWith('*')) {
-      const items = p.split(/\n/).filter(line => line.trim());
-      const listItems = items.map(item => {
-        const cleanItem = item.replace(/^[\s]*[•\-\*]\s*/, '');
-        return `<li><p>${cleanItem}</p></li>`;
-      }).join('');
-      return `<ul>${listItems}</ul>`;
+  if (!body || !body.hasChildNodes()) {
+    return 'Empty template - no specific formatting required.';
+  }
+
+  const instructions: string[] = [];
+  const elementOrder: string[] = [];
+  let elementIndex = 0;
+
+  // Track formatting patterns
+  const formatPatterns = {
+    fonts: new Set<string>(),
+    sizes: new Set<string>(),
+    alignments: new Set<string>(),
+    colors: new Set<string>(),
+    hasIndentation: false,
+    hasBold: false,
+    hasItalic: false,
+    hasUnderline: false,
+  };
+
+  // Helper to extract inline styles from an element
+  const extractStyles = (element: Element): { font?: string; size?: string; color?: string; align?: string; indent?: string } => {
+    const style = element.getAttribute('style') || '';
+    const result: { font?: string; size?: string; color?: string; align?: string; indent?: string } = {};
+    
+    const fontMatch = style.match(/font-family:\s*([^;]+)/i);
+    if (fontMatch) result.font = fontMatch[1].trim();
+    
+    const sizeMatch = style.match(/font-size:\s*([^;]+)/i);
+    if (sizeMatch) result.size = sizeMatch[1].trim();
+    
+    const colorMatch = style.match(/color:\s*([^;]+)/i);
+    if (colorMatch) result.color = colorMatch[1].trim();
+    
+    const alignMatch = style.match(/text-align:\s*([^;]+)/i);
+    if (alignMatch) result.align = alignMatch[1].trim();
+    
+    const indentMatch = style.match(/text-indent:\s*([^;]+)/i);
+    if (indentMatch) {
+      result.indent = indentMatch[1].trim();
+      formatPatterns.hasIndentation = true;
     }
     
-    // Handle numbered lists
-    if (/^\s*\d+[\.\)]\s/.test(p.trim())) {
-      const items = p.split(/\n/).filter(line => line.trim());
-      const listItems = items.map(item => {
-        const cleanItem = item.replace(/^\s*\d+[\.\)]\s*/, '');
-        return `<li><p>${cleanItem}</p></li>`;
-      }).join('');
-      return `<ol>${listItems}</ol>`;
+    if (result.font) formatPatterns.fonts.add(result.font);
+    if (result.size) formatPatterns.sizes.add(result.size);
+    if (result.color) formatPatterns.colors.add(result.color);
+    if (result.align) formatPatterns.alignments.add(result.align);
+    
+    return result;
+  };
+
+  // Helper to describe an element's formatting
+  const describeElement = (element: Element, label: string): string => {
+    const styles = extractStyles(element);
+    const parts: string[] = [label];
+    
+    if (styles.align) parts.push(`aligned ${styles.align}`);
+    if (styles.font) parts.push(`font: ${styles.font}`);
+    if (styles.size) parts.push(`size: ${styles.size}`);
+    if (styles.color) parts.push(`color: ${styles.color}`);
+    if (styles.indent) parts.push(`first-line indent: ${styles.indent}`);
+    
+    // Check for bold/italic in children
+    if (element.querySelector('strong, b')) {
+      parts.push('bold');
+      formatPatterns.hasBold = true;
+    }
+    if (element.querySelector('em, i')) {
+      parts.push('italic');
+      formatPatterns.hasItalic = true;
+    }
+    if (element.querySelector('u')) {
+      parts.push('underline');
+      formatPatterns.hasUnderline = true;
     }
     
-    // Regular paragraph - convert single newlines to <br>
-    const withBreaks = p.replace(/\n/g, '<br>');
-    return `<p>${withBreaks}</p>`;
-  }).join('');
+    return parts.join(', ');
+  };
+
+  // Process each child element in order
+  const processElement = (element: Element) => {
+    elementIndex++;
+    const tagName = element.tagName.toLowerCase();
+    const textContent = element.textContent?.trim().slice(0, 50) || '';
+    const textPreview = textContent.length >= 50 ? textContent + '...' : textContent;
+
+    switch (tagName) {
+      case 'h1':
+        elementOrder.push(`${elementIndex}. HEADING 1 (Title): "${textPreview}" - ${describeElement(element, 'H1')}`);
+        break;
+      case 'h2':
+        elementOrder.push(`${elementIndex}. HEADING 2 (Section): "${textPreview}" - ${describeElement(element, 'H2')}`);
+        break;
+      case 'h3':
+        elementOrder.push(`${elementIndex}. HEADING 3 (Subsection): "${textPreview}" - ${describeElement(element, 'H3')}`);
+        break;
+      case 'h4':
+      case 'h5':
+      case 'h6':
+        elementOrder.push(`${elementIndex}. HEADING ${tagName.slice(1)}: "${textPreview}" - ${describeElement(element, tagName.toUpperCase())}`);
+        break;
+      case 'p':
+        const pStyles = extractStyles(element);
+        if (pStyles.align === 'center') {
+          elementOrder.push(`${elementIndex}. CENTERED PARAGRAPH: "${textPreview}" - ${describeElement(element, 'paragraph')}`);
+        } else {
+          elementOrder.push(`${elementIndex}. PARAGRAPH: "${textPreview}" - ${describeElement(element, 'paragraph')}`);
+        }
+        break;
+      case 'ul':
+        elementOrder.push(`${elementIndex}. BULLET LIST - ${describeElement(element, 'unordered list')}`);
+        break;
+      case 'ol':
+        elementOrder.push(`${elementIndex}. NUMBERED LIST - ${describeElement(element, 'ordered list')}`);
+        break;
+      case 'blockquote':
+        elementOrder.push(`${elementIndex}. BLOCKQUOTE: "${textPreview}" - ${describeElement(element, 'blockquote')}`);
+        break;
+      case 'hr':
+        elementOrder.push(`${elementIndex}. HORIZONTAL RULE (divider)`);
+        break;
+      default:
+        if (textContent) {
+          elementOrder.push(`${elementIndex}. ${tagName.toUpperCase()}: "${textPreview}"`);
+        }
+    }
+  };
+
+  // Process all top-level elements
+  Array.from(body.children).forEach(child => processElement(child));
+
+  // Build the instructions string
+  instructions.push('## TEMPLATE STRUCTURE (follow this order exactly):\n');
+  instructions.push(...elementOrder);
+
+  // Add general formatting rules
+  instructions.push('\n## FORMATTING RULES TO APPLY:\n');
+  
+  if (formatPatterns.fonts.size > 0) {
+    const mainFont = Array.from(formatPatterns.fonts)[0];
+    instructions.push(`- Font Family: Use "${mainFont}" for all text`);
+  }
+  
+  if (formatPatterns.sizes.size > 0) {
+    const sizes = Array.from(formatPatterns.sizes);
+    if (sizes.length === 1) {
+      instructions.push(`- Font Size: Use ${sizes[0]} for all text`);
+    } else {
+      instructions.push(`- Font Sizes: ${sizes.join(', ')} (apply as shown in structure)`);
+    }
+  }
+  
+  if (formatPatterns.alignments.size > 0) {
+    instructions.push(`- Text Alignments: ${Array.from(formatPatterns.alignments).join(', ')} (apply as shown in structure)`);
+  }
+  
+  if (formatPatterns.hasIndentation) {
+    instructions.push(`- Paragraph Indentation: Apply first-line indent to body paragraphs using <format type="textIndent" target="PARAGRAPH_TEXT"/>`);
+  }
+  
+  if (formatPatterns.hasBold || formatPatterns.hasItalic || formatPatterns.hasUnderline) {
+    const styles: string[] = [];
+    if (formatPatterns.hasBold) styles.push('bold');
+    if (formatPatterns.hasItalic) styles.push('italic');
+    if (formatPatterns.hasUnderline) styles.push('underline');
+    instructions.push(`- Text Styles Used: ${styles.join(', ')}`);
+  }
+
+  instructions.push('\n## HOW TO REPLICATE:\n');
+  instructions.push('1. First, write the content using <write> tags following the EXACT structure order above');
+  instructions.push('2. Then, apply formatting using <format> tags:');
+  
+  if (formatPatterns.fonts.size > 0) {
+    const mainFont = Array.from(formatPatterns.fonts)[0];
+    instructions.push(`   - <format type="fontFamily" target="all" value="${mainFont}"/>`);
+  }
+  if (formatPatterns.sizes.size > 0) {
+    const mainSize = Array.from(formatPatterns.sizes)[0];
+    instructions.push(`   - <format type="fontSize" target="all" value="${mainSize}"/>`);
+  }
+  instructions.push('   - Apply heading formats: <format type="h1" target="TITLE_TEXT"/>');
+  instructions.push('   - Apply alignments: <format type="align" target="TEXT_TO_CENTER" value="center"/>');
+  if (formatPatterns.hasIndentation) {
+    instructions.push('   - Apply paragraph indents: <format type="textIndent" target="PARAGRAPH_TEXT"/>');
+  }
+
+  return instructions.join('\n');
+}
+
+// Convert plain text with line breaks to HTML
+// Each line becomes its own paragraph for proper block-level formatting (alignment, indentation)
+// This matches word processor behavior where Enter = new paragraph
+function textToHtml(text: string): string {
+  // Split by any newline(s) - each line becomes its own paragraph
+  const lines = text.split(/\n/).filter(line => line.trim());
+  
+  const result: string[] = [];
+  let i = 0;
+  
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    
+    // Check if this is a bullet point
+    if (trimmed.startsWith('•') || trimmed.startsWith('-') || trimmed.startsWith('*')) {
+      // Collect consecutive bullet items
+      const listItems: string[] = [];
+      while (i < lines.length) {
+        const currentTrimmed = lines[i].trim();
+        if (currentTrimmed.startsWith('•') || currentTrimmed.startsWith('-') || currentTrimmed.startsWith('*')) {
+          const cleanItem = currentTrimmed.replace(/^[•\-\*]\s*/, '');
+          listItems.push(`<li><p>${cleanItem}</p></li>`);
+          i++;
+        } else {
+          break;
+        }
+      }
+      result.push(`<ul>${listItems.join('')}</ul>`);
+      continue;
+    }
+    
+    // Check if this is a numbered list item
+    if (/^\d+[\.\)]\s/.test(trimmed)) {
+      // Collect consecutive numbered items
+      const listItems: string[] = [];
+      while (i < lines.length) {
+        const currentTrimmed = lines[i].trim();
+        if (/^\d+[\.\)]\s/.test(currentTrimmed)) {
+          const cleanItem = currentTrimmed.replace(/^\d+[\.\)]\s*/, '');
+          listItems.push(`<li><p>${cleanItem}</p></li>`);
+          i++;
+        } else {
+          break;
+        }
+      }
+      result.push(`<ol>${listItems.join('')}</ol>`);
+      continue;
+    }
+    
+    // Regular paragraph - each line is its own paragraph
+    result.push(`<p>${trimmed}</p>`);
+    i++;
+  }
+  
+  return result.join('');
 }
 
 // Apply formatting using Tiptap editor API
@@ -1414,6 +1769,16 @@ export function useDocuments() {
   const [personaSettings, setPersonaSettings] = useState<PersonaSettings | null>(() => {
     return loadPersona();
   });
+  const [ghostModeEnabled, setGhostModeEnabled] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem(GHOST_MODE_STORAGE_KEY);
+      return stored === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [templates, setTemplates] = useState<EssayTemplate[]>(() => getAllTemplates());
+  const [selectedTemplate, setSelectedTemplate] = useState<EssayTemplate | null>(null);
   const parseContextRef = useRef<ParseContext>(createParseContext());
   const editorRefStore = useRef<TiptapEditorHandle | null>(null);
   const streamingChatRef = useRef<string>('');
@@ -1495,10 +1860,68 @@ export function useDocuments() {
     savePersona(personaSettings);
   }, [personaSettings]);
 
+  // Save ghost mode state to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(GHOST_MODE_STORAGE_KEY, ghostModeEnabled.toString());
+    } catch {
+      // Storage unavailable
+    }
+  }, [ghostModeEnabled]);
+
   // Update persona settings
   const updatePersona = useCallback((settings: PersonaSettings | null) => {
     setPersonaSettings(settings);
   }, []);
+
+  // Toggle ghost mode
+  const toggleGhostMode = useCallback(() => {
+    setGhostModeEnabled(prev => !prev);
+  }, []);
+
+  // Save current document as a template
+  const saveAsTemplate = useCallback((name: string, editorRef: React.RefObject<TiptapEditorHandle | null>) => {
+    if (!editorRef.current) return;
+    
+    const htmlContent = editorRef.current.getHTML();
+    const formattingInstructions = generateTemplateInstructions(htmlContent);
+    
+    const newTemplate: EssayTemplate = {
+      id: crypto.randomUUID(),
+      name,
+      type: 'custom',
+      htmlContent,
+      formattingInstructions,
+      createdAt: Date.now(),
+    };
+    
+    const customTemplates = loadCustomTemplates();
+    const updatedCustomTemplates = [...customTemplates, newTemplate];
+    saveCustomTemplates(updatedCustomTemplates);
+    
+    // Update templates state to include the new template
+    setTemplates(getAllTemplates());
+    
+    return newTemplate;
+  }, []);
+
+  // Delete a custom template
+  const deleteTemplate = useCallback((templateId: string) => {
+    // Can't delete preset templates
+    if (templateId.startsWith('preset-')) return;
+    
+    const customTemplates = loadCustomTemplates();
+    const filtered = customTemplates.filter(t => t.id !== templateId);
+    saveCustomTemplates(filtered);
+    
+    // Update templates state
+    setTemplates(getAllTemplates());
+    
+    // Clear selected template if it was deleted
+    if (selectedTemplate?.id === templateId) {
+      setSelectedTemplate(null);
+    }
+  }, [selectedTemplate]);
 
   const createDocument = useCallback((title?: string) => {
     const newDoc = createNewDocument(title);
@@ -1681,6 +2104,29 @@ export function useDocuments() {
     if (preSearchResults && preSearchResults.length > 0) {
       const formattedResults = formatSearchResultsForAI(preSearchResults);
       systemContent += `\n\n## Research Results (use these for citations):\n${formattedResults}\n\nIMPORTANT: Use the research results above to support your writing with accurate information and proper citations. Include URLs when citing sources. For "Accessed" dates in citations, use today's date: ${currentDate}.`;
+    }
+    
+    // Add template context if a template is selected
+    if (selectedTemplate) {
+      systemContent += `\n\n## TEMPLATE TO FOLLOW (CRITICAL)
+
+You MUST follow this template exactly when writing. Match the structure, formatting, fonts, sizes, alignment, and spacing.
+
+### Template: ${selectedTemplate.name}
+
+---BEGIN TEMPLATE HTML---
+${selectedTemplate.htmlContent}
+---END TEMPLATE HTML---
+
+${selectedTemplate.formattingInstructions}
+
+CRITICAL INSTRUCTIONS:
+1. Follow the EXACT structure shown in the template (order of elements, headings, paragraphs)
+2. Apply the SAME fonts, sizes, and alignments as shown
+3. Use the format tags to match styling EXACTLY
+4. Replace placeholder text with actual content, but keep the formatting identical
+5. If the template has indentation, apply it using <format type="textIndent" target="PARAGRAPH" value="0.5in"/>
+6. If the template centers titles, use <format type="align" target="TITLE" value="center"/>`;
     }
     
     const systemMessage: ChatMessage = {
@@ -2391,7 +2837,7 @@ export function useDocuments() {
         abortControllerRef.current = null;
       },
     }, selectedModel, abortControllerRef.current.signal);
-  }, [activeDocument, activeDocId, isLoading, selectedModel, personaSettings, generateTitleFromMessage]);
+  }, [activeDocument, activeDocId, isLoading, selectedModel, personaSettings, selectedTemplate, generateTitleFromMessage]);
 
   const clearChat = useCallback(() => {
     setDocuments(prev => prev.map(doc => 
@@ -2421,6 +2867,13 @@ export function useDocuments() {
     setSelectedModel,
     personaSettings,
     updatePersona,
+    ghostModeEnabled,
+    toggleGhostMode,
+    templates,
+    selectedTemplate,
+    setSelectedTemplate,
+    saveAsTemplate,
+    deleteTemplate,
     createDocument,
     switchDocument,
     updateTitle,

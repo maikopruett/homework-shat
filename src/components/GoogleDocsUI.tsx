@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import type { Document, ChatMode, PersonaSettings } from '../hooks/useDocuments';
+import type { Document, ChatMode, PersonaSettings, EssayTemplate } from '../hooks/useDocuments';
 import ChatSidebar from './ChatSidebar';
 import TiptapEditor, { type TiptapEditorHandle, type EditorState } from './TiptapEditor';
 import type { SearchResult } from '../api/exa';
@@ -23,6 +23,14 @@ interface GoogleDocsUIProps {
   onDeleteDocument: (docId: string) => void;
   personaSettings: PersonaSettings | null;
   onUpdatePersona: (settings: PersonaSettings | null) => void;
+  ghostModeEnabled: boolean;
+  onToggleGhostMode: () => void;
+  // Template props
+  templates: EssayTemplate[];
+  selectedTemplate: EssayTemplate | null;
+  onSelectTemplate: (template: EssayTemplate | null) => void;
+  onSaveAsTemplate: (name: string, editorRef: React.RefObject<TiptapEditorHandle | null>) => void;
+  onDeleteTemplate: (templateId: string) => void;
 }
 
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72];
@@ -79,6 +87,13 @@ export default function GoogleDocsUI({
   onDeleteDocument,
   personaSettings,
   onUpdatePersona,
+  ghostModeEnabled,
+  onToggleGhostMode,
+  templates,
+  selectedTemplate,
+  onSelectTemplate,
+  onSaveAsTemplate,
+  onDeleteTemplate,
 }: GoogleDocsUIProps) {
   const editorRef = useRef<TiptapEditorHandle>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -564,6 +579,14 @@ ${html}
     onSendMessage(text, editorRef, mode, searchResults);
   }, [onSendMessage]);
 
+  // Handle ghost mode submit (Ctrl+Enter in editor)
+  const handleGhostSubmit = useCallback((text: string) => {
+    if (ghostModeEnabled && text.trim()) {
+      // Always use edit mode in ghost mode
+      onSendMessage(text, editorRef, 'edit');
+    }
+  }, [ghostModeEnabled, onSendMessage]);
+
   // Handle keyboard shortcuts
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey) {
@@ -848,6 +871,43 @@ ${html}
               
               {/* Titlebar Buttons - Right Side */}
               <div className="text-right align-middle whitespace-nowrap font-['Google_Sans',_Roboto,_RobotoDraft,_Helvetica,_Arial,_sans-serif] absolute top-0 right-0 z-[900] flex items-center h-16 bg-[#f9fbfd] pl-4 pr-3">
+                {/* Ghost Mode Indicator */}
+                {ghostModeEnabled && (
+                  <div className="inline-block relative mr-2" title="Ghost Mode Active - Press Ctrl+Enter to send">
+                    <div 
+                      className={`relative z-[1] text-center whitespace-nowrap outline-none text-xs leading-7 font-medium justify-center items-center inline-flex w-10 h-10 rounded-full border border-transparent transition-all duration-300 select-none ${
+                        isSearching 
+                          ? 'bg-purple-100 text-purple-600' 
+                          : isWritingToDoc 
+                            ? 'bg-green-100 text-green-600' 
+                            : isLoading 
+                              ? 'bg-blue-100 text-blue-600' 
+                              : 'text-gray-500 hover:bg-black/[0.06]'
+                      }`}
+                      role="status"
+                      aria-label={`Ghost Mode: ${isSearching ? 'Researching' : isWritingToDoc ? 'Writing' : isLoading ? 'Thinking' : 'Ready'}`}
+                    >
+                      <svg 
+                        width="24" 
+                        height="24" 
+                        viewBox="0 0 24 24" 
+                        fill={
+                          isSearching 
+                            ? '#9333ea' 
+                            : isWritingToDoc 
+                              ? '#22c55e' 
+                              : isLoading 
+                                ? '#3b82f6' 
+                                : '#5f6368'
+                        }
+                        className={`transition-all duration-300 ${(isLoading || isSearching || isWritingToDoc) ? 'animate-pulse' : ''}`}
+                      >
+                        <path d="M12 2C7.58 2 4 5.58 4 10v8c0 1.1.9 2 2 2h1c0-1.1.9-2 2-2s2 .9 2 2h2c0-1.1.9-2 2-2s2 .9 2 2h1c1.1 0 2-.9 2-2v-8c0-4.42-3.58-8-8-8zm-2 9c-.83 0-1.5-.67-1.5-1.5S9.17 8 10 8s1.5.67 1.5 1.5S10.83 11 10 11zm4 0c-.83 0-1.5-.67-1.5-1.5S13.17 8 14 8s1.5.67 1.5 1.5S14.83 11 14 11z"/>
+                      </svg>
+                    </div>
+                  </div>
+                )}
+                
                 {/* History Button */}
                 <div className="inline-block relative">
                   <div 
@@ -1045,6 +1105,29 @@ ${html}
                             <span className="ml-auto w-2 h-2 bg-blue-500 rounded-full" />
                           )}
                         </button>
+                        
+                        <div className="h-px bg-gray-200 my-1" />
+                        
+                        <button 
+                          className={`flex items-center gap-3 w-full px-4 py-2.5 border-none text-sm text-left cursor-pointer transition-colors hover:bg-gray-100 ${ghostModeEnabled ? 'bg-purple-50 text-purple-700' : 'bg-transparent text-gray-800'}`}
+                          onClick={() => {
+                            onToggleGhostMode();
+                            setProfileMenuOpen(false);
+                          }}
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill={ghostModeEnabled ? '#7c3aed' : 'currentColor'}>
+                            <path d="M12 2C7.58 2 4 5.58 4 10v8c0 1.1.9 2 2 2h1c0-1.1.9-2 2-2s2 .9 2 2h2c0-1.1.9-2 2-2s2 .9 2 2h1c1.1 0 2-.9 2-2v-8c0-4.42-3.58-8-8-8zm-2 9c-.83 0-1.5-.67-1.5-1.5S9.17 8 10 8s1.5.67 1.5 1.5S10.83 11 10 11zm4 0c-.83 0-1.5-.67-1.5-1.5S13.17 8 14 8s1.5.67 1.5 1.5S14.83 11 14 11z"/>
+                          </svg>
+                          Ghost Mode
+                          {ghostModeEnabled ? (
+                            <span className="ml-auto text-xs text-purple-600 font-medium">ON</span>
+                          ) : (
+                            <span className="ml-auto text-xs text-gray-400">OFF</span>
+                          )}
+                        </button>
+                        <p className="px-4 py-1.5 text-[10px] text-gray-400 leading-tight">
+                          Type in doc, press Ctrl+Enter to send secretly
+                        </p>
                       </div>
                       
                       {personaSettings?.profileImage && (
@@ -1687,6 +1770,7 @@ ${html}
                 onUpdate={handleEditorUpdate}
                 onSelectionUpdate={handleSelectionUpdate}
                 onBlur={saveContent}
+                onGhostSubmit={ghostModeEnabled ? handleGhostSubmit : undefined}
                 placeholder="Start typing your document..."
                 className="w-full min-h-[912px] outline-none font-['Arial',_sans-serif] text-[11pt] leading-[1.15] text-black"
               />
@@ -1704,14 +1788,20 @@ ${html}
           isSearching={isSearching}
           selectedModel={selectedModel}
           onModelChange={onModelChange}
-          chatMode={chatMode}
-          onModeChange={setChatMode}
+          chatMode={ghostModeEnabled ? 'edit' : chatMode}
+          onModeChange={ghostModeEnabled ? () => {} : setChatMode}
           isOpen={chatOpen}
           onSendMessage={handleSendMessage}
           onSearch={onSearch}
           onStopGeneration={onStopGeneration}
           onCreateDocument={onCreateDocument}
           onSwitchDocument={onSwitchDocument}
+          templates={templates}
+          selectedTemplate={selectedTemplate}
+          onSelectTemplate={onSelectTemplate}
+          onSaveAsTemplate={(name) => onSaveAsTemplate(name, editorRef)}
+          onDeleteTemplate={onDeleteTemplate}
+          editorRef={editorRef}
         />
       </div>
 

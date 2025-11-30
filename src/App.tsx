@@ -12,6 +12,13 @@ export default function App() {
     setSelectedModel,
     personaSettings,
     updatePersona,
+    ghostModeEnabled,
+    toggleGhostMode,
+    templates,
+    selectedTemplate,
+    setSelectedTemplate,
+    saveAsTemplate,
+    deleteTemplate,
     createDocument,
     switchDocument,
     updateTitle,
@@ -41,6 +48,13 @@ export default function App() {
       onDeleteDocument={deleteDocument}
       personaSettings={personaSettings}
       onUpdatePersona={updatePersona}
+      ghostModeEnabled={ghostModeEnabled}
+      onToggleGhostMode={toggleGhostMode}
+      templates={templates}
+      selectedTemplate={selectedTemplate}
+      onSelectTemplate={setSelectedTemplate}
+      onSaveAsTemplate={saveAsTemplate}
+      onDeleteTemplate={deleteTemplate}
     />
   );
 }

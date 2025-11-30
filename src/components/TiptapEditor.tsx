@@ -44,6 +44,10 @@ export interface TiptapEditorHandle {
   outdent: () => void;
   setTextIndent: (indent: string) => void;
   unsetTextIndent: () => void;
+  // Ghost mode methods
+  getCurrentParagraphText: () => string;
+  deleteCurrentParagraph: () => void;
+  getSelectedTextOrParagraph: () => string;
 }
 
 export interface EditorState {
@@ -69,6 +73,7 @@ interface TiptapEditorProps {
   onUpdate?: (html: string) => void;
   onBlur?: () => void;
   onSelectionUpdate?: (state: EditorState) => void;
+  onGhostSubmit?: (text: string) => void;
   placeholder?: string;
   className?: string;
 }
@@ -192,7 +197,7 @@ declare module '@tiptap/core' {
 }
 
 const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
-  ({ content = '', onUpdate, onBlur, onSelectionUpdate, placeholder = 'Start typing...', className = '' }, ref) => {
+  ({ content = '', onUpdate, onBlur, onSelectionUpdate, onGhostSubmit, placeholder = 'Start typing...', className = '' }, ref) => {
     
     // Helper to get current editor state for toolbar sync
     const getEditorState = (editor: Editor): EditorState => {
@@ -279,6 +284,51 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
           class: 'tiptap-editor-content',
         },
         handleKeyDown: (view, event) => {
+          // Handle Ctrl+Enter for Ghost Mode submit
+          if (event.ctrlKey && event.key === 'Enter') {
+            if (onGhostSubmit && editor) {
+              event.preventDefault();
+              
+              const { state } = view;
+              const { selection } = state;
+              const { from, to, empty } = selection;
+              
+              let text: string;
+              
+              if (!empty) {
+                // Has selection - get selected text
+                text = state.doc.textBetween(from, to, ' ');
+                // Delete the selection
+                editor.chain().focus().deleteSelection().run();
+              } else {
+                // No selection - get current paragraph/block
+                const $from = selection.$from;
+                const parent = $from.parent;
+                text = parent.textContent;
+                
+                // Find the position range of the current block
+                const blockStart = $from.start();
+                const blockEnd = $from.end();
+                
+                // Delete the entire block content
+                if (text.trim()) {
+                  editor.chain()
+                    .focus()
+                    .setTextSelection({ from: blockStart, to: blockEnd })
+                    .deleteSelection()
+                    .run();
+                }
+              }
+              
+              // Only submit if there's actual text
+              if (text.trim()) {
+                onGhostSubmit(text.trim());
+              }
+              
+              return true;
+            }
+          }
+          
           // Handle Tab and Shift+Tab for indentation
           if (event.key === 'Tab') {
             event.preventDefault();
@@ -445,6 +495,42 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
       },
       unsetTextIndent: () => {
         editor?.chain().focus().unsetTextIndent().run();
+      },
+      // Ghost mode methods
+      getCurrentParagraphText: () => {
+        if (!editor) return '';
+        const { state } = editor;
+        const { selection } = state;
+        const $from = selection.$from;
+        return $from.parent.textContent;
+      },
+      deleteCurrentParagraph: () => {
+        if (!editor) return;
+        const { state } = editor;
+        const { selection } = state;
+        const $from = selection.$from;
+        const blockStart = $from.start();
+        const blockEnd = $from.end();
+        editor.chain()
+          .focus()
+          .setTextSelection({ from: blockStart, to: blockEnd })
+          .deleteSelection()
+          .run();
+      },
+      getSelectedTextOrParagraph: () => {
+        if (!editor) return '';
+        const { state } = editor;
+        const { selection } = state;
+        const { from, to, empty } = selection;
+        
+        if (!empty) {
+          // Has selection - return selected text
+          return state.doc.textBetween(from, to, ' ');
+        } else {
+          // No selection - return current paragraph
+          const $from = selection.$from;
+          return $from.parent.textContent;
+        }
       },
     }), [editor]);
 
