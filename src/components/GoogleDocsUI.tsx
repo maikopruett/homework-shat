@@ -103,6 +103,7 @@ export default function GoogleDocsUI({
   const [infoOpen, setInfoOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [personaModalOpen, setPersonaModalOpen] = useState(false);
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [personaDocName, setPersonaDocName] = useState<string | null>(null);
   const [personaDocContent, setPersonaDocContent] = useState<string | null>(null);
   const [personaUploadError, setPersonaUploadError] = useState<string | null>(null);
@@ -615,6 +616,22 @@ ${html}
       }
     }
   }, []);
+
+  // Handle Escape key to close modals
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (helpModalOpen) {
+          setHelpModalOpen(false);
+        }
+        if (personaModalOpen) {
+          setPersonaModalOpen(false);
+        }
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [helpModalOpen, personaModalOpen]);
 
   const currentHeadingLabel = HEADING_OPTIONS.find(h => h.value === headingStyle)?.label || 'Normal text';
 
@@ -1314,7 +1331,15 @@ ${html}
             <div role="menuitem" className="shadow-none text-gray-800 cursor-pointer tracking-[0.2px] border border-transparent rounded px-[7px] py-0.5 text-sm inline-block mt-2 -mb-1 select-none transition-colors align-text-bottom overflow-hidden hover:bg-gray-100" aria-expanded="false" aria-haspopup="true">Format</div>
             <div role="menuitem" className="shadow-none text-gray-800 cursor-pointer tracking-[0.2px] border border-transparent rounded px-[7px] py-0.5 text-sm inline-block mt-2 -mb-1 select-none transition-colors align-text-bottom overflow-hidden hover:bg-gray-100" aria-expanded="false" aria-haspopup="true">Tools</div>
             <div role="menuitem" className="shadow-none text-gray-800 cursor-pointer tracking-[0.2px] border border-transparent rounded px-[7px] py-0.5 text-sm inline-block mt-2 -mb-1 select-none transition-colors align-text-bottom overflow-hidden hover:bg-gray-100" aria-expanded="false" aria-haspopup="true">Extensions</div>
-            <div role="menuitem" className="shadow-none text-gray-800 cursor-pointer tracking-[0.2px] border border-transparent rounded px-[7px] py-0.5 text-sm inline-block mt-2 -mb-1 select-none transition-colors align-text-bottom overflow-hidden hover:bg-gray-100" aria-expanded="false" aria-haspopup="true">Help</div>
+            <button 
+              role="menuitem" 
+              className="shadow-none text-gray-800 cursor-pointer tracking-[0.2px] border border-transparent rounded px-[7px] py-0.5 text-sm inline-block mt-2 -mb-1 select-none transition-colors align-text-bottom overflow-hidden hover:bg-gray-100" 
+              aria-expanded="false" 
+              aria-haspopup="true"
+              onClick={() => setHelpModalOpen(true)}
+            >
+              Help
+            </button>
           </div>
         </div>
       </div>
@@ -1988,6 +2013,264 @@ ${html}
                   Save persona
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Help Modal */}
+      {helpModalOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setHelpModalOpen(false)}
+          />
+          
+          {/* Modal */}
+          <div className="relative bg-white rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.2)] w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col animate-[modal-in_0.2s_ease]">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+              <h2 className="text-lg font-semibold text-gray-900">Help & Documentation</h2>
+              <button 
+                className="w-8 h-8 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+                onClick={() => setHelpModalOpen(false)}
+                aria-label="Close help modal"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            
+            {/* Content - Scrollable */}
+            <div className="px-6 py-5 overflow-y-auto flex-1">
+              {/* Introduction */}
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Welcome to DocFake</h3>
+                <p className="text-sm text-gray-700 leading-relaxed mb-2">
+                  DocFake is an AI-powered document editor that looks like Google Docs but includes powerful AI writing assistance built right in. Write essays, reports, and documents faster with AI that can edit your document directly, research sources, and match your writing style.
+                </p>
+              </div>
+
+              {/* Chat Modes */}
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Chat Modes</h3>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 mb-1">Edit Mode</p>
+                    <p className="text-sm text-gray-700 leading-relaxed">
+                      The AI can directly edit your document. Ask it to write, rewrite, format, or modify content, and it will make changes automatically. Perfect for creating and editing content.
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 mb-1">Chat Mode</p>
+                    <p className="text-sm text-gray-700 leading-relaxed">
+                      The AI can only discuss and provide feedback without editing your document. Use this when you want advice, suggestions, or explanations without any changes being made.
+                    </p>
+                  </div>
+                  <p className="text-sm text-gray-600 italic">
+                    Switch between modes using the toggle in the chat sidebar.
+                  </p>
+                </div>
+              </div>
+
+              {/* Ghost Mode */}
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Ghost Mode</h3>
+                <p className="text-sm text-gray-700 leading-relaxed mb-2">
+                  Ghost Mode lets you use AI assistance discreetly. When enabled, you can type directly in your document and press <kbd className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">Ctrl+Enter</kbd> to send your text to the AI secretly.
+                </p>
+                <ul className="text-sm text-gray-700 list-disc list-inside space-y-1 ml-2">
+                  <li>Enable via Profile menu → Ghost Mode</li>
+                  <li>Type in your document normally</li>
+                  <li>Press <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-xs font-mono">Ctrl+Enter</kbd> to send</li>
+                  <li>Look for the ghost icon indicator in the top bar when active</li>
+                </ul>
+              </div>
+
+              {/* Persona Settings */}
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Persona Settings</h3>
+                <p className="text-sm text-gray-700 leading-relaxed mb-2">
+                  Upload a document written in your style, and the AI will mimic your writing voice, vocabulary, and patterns. Perfect for maintaining consistency across assignments.
+                </p>
+                <ul className="text-sm text-gray-700 list-disc list-inside space-y-1 ml-2">
+                  <li>Access via Profile menu → Persona settings</li>
+                  <li>Upload a document (.txt, .pdf, .docx, .html)</li>
+                  <li>The AI analyzes your writing style</li>
+                  <li>All future AI responses will match your style</li>
+                </ul>
+              </div>
+
+              {/* Templates */}
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Templates</h3>
+                <p className="text-sm text-gray-700 leading-relaxed mb-2">
+                  Use preset templates (APA, MLA) or save your own custom templates for consistent formatting.
+                </p>
+                <ul className="text-sm text-gray-700 list-disc list-inside space-y-1 ml-2">
+                  <li>Select templates from the chat sidebar</li>
+                  <li>Preset templates: APA Format (7th Edition), MLA Format (9th Edition)</li>
+                  <li>Save current document as template: Tools menu → Save as template</li>
+                  <li>Templates preserve formatting, fonts, and structure</li>
+                </ul>
+              </div>
+
+              {/* Document Management */}
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Document Management</h3>
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 mb-1">Create Documents</p>
+                    <p className="text-sm text-gray-700">
+                      File → New document or <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-xs font-mono">Ctrl+N</kbd>
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 mb-1">Import Documents</p>
+                    <p className="text-sm text-gray-700">
+                      File → Import document or <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-xs font-mono">Ctrl+O</kbd>
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1 ml-4">
+                      Supports: HTML (full formatting), DOCX (basic formatting), TXT/PDF (text only)
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 mb-1">Switch Documents</p>
+                    <p className="text-sm text-gray-700">
+                      Click on document names in the chat sidebar to switch between open documents.
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 mb-1">Export Documents</p>
+                    <p className="text-sm text-gray-700">
+                      File → Download → Choose format: PDF, Word (.doc), RTF, HTML, Markdown (.md), or Plain Text (.txt)
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 mb-1">Delete Documents</p>
+                    <p className="text-sm text-gray-700">
+                      File → Delete document (requires at least 2 documents)
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Formatting Tools */}
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Formatting Tools</h3>
+                <p className="text-sm text-gray-700 leading-relaxed mb-2">
+                  Use the toolbar or keyboard shortcuts to format your document:
+                </p>
+                <ul className="text-sm text-gray-700 list-disc list-inside space-y-1 ml-2">
+                  <li><strong>Text Styles:</strong> Bold, Italic, Underline</li>
+                  <li><strong>Colors:</strong> Text color and highlight colors</li>
+                  <li><strong>Fonts:</strong> Change font family and size</li>
+                  <li><strong>Headings:</strong> H1-H6 heading styles</li>
+                  <li><strong>Lists:</strong> Bulleted and numbered lists</li>
+                  <li><strong>Alignment:</strong> Left, center, right, justify</li>
+                  <li><strong>Indentation:</strong> Increase/decrease indent</li>
+                  <li><strong>Links:</strong> Insert hyperlinks</li>
+                  <li><strong>Clear Formatting:</strong> Remove all formatting from selection</li>
+                </ul>
+              </div>
+
+              {/* Search & Research */}
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Search & Research</h3>
+                <p className="text-sm text-gray-700 leading-relaxed mb-2">
+                  The AI can automatically search for sources when writing essays or research papers. It will find relevant sources, cite them properly, and include URLs in your citations.
+                </p>
+                <ul className="text-sm text-gray-700 list-disc list-inside space-y-1 ml-2">
+                  <li>Enable Research mode toggle in the chat sidebar</li>
+                  <li>The AI automatically searches when writing essays</li>
+                  <li>Citations include proper formatting (MLA/APA)</li>
+                  <li>Sources are verified and include URLs</li>
+                </ul>
+              </div>
+
+              {/* Keyboard Shortcuts */}
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Keyboard Shortcuts</h3>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-700">Bold</span>
+                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">Ctrl+B</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-700">Italic</span>
+                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">Ctrl+I</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-700">Underline</span>
+                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">Ctrl+U</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-700">Insert Link</span>
+                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">Ctrl+K</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-700">Undo</span>
+                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">Ctrl+Z</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-700">Redo</span>
+                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">Ctrl+Shift+Z</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-700">Ghost Mode Submit</span>
+                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">Ctrl+Enter</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-700">New Document</span>
+                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">Ctrl+N</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-700">Import Document</span>
+                    <kbd className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">Ctrl+O</kbd>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tips & Best Practices */}
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Tips & Best Practices</h3>
+                <ul className="text-sm text-gray-700 list-disc list-inside space-y-2 ml-2">
+                  <li>
+                    <strong>Use Edit Mode</strong> when you want the AI to write or modify content directly in your document.
+                  </li>
+                  <li>
+                    <strong>Use Chat Mode</strong> when you want feedback, suggestions, or explanations without changes.
+                  </li>
+                  <li>
+                    <strong>Be specific</strong> in your requests. Instead of "make it better," try "make the introduction more engaging" or "add more detail to the conclusion."
+                  </li>
+                  <li>
+                    <strong>Use templates</strong> for consistent formatting. Select a template before writing to ensure proper structure.
+                  </li>
+                  <li>
+                    <strong>Enable Research mode</strong> when writing essays that need citations. The AI will find and cite sources automatically.
+                  </li>
+                  <li>
+                    <strong>Use Persona</strong> to maintain your writing style across multiple documents and assignments.
+                  </li>
+                  <li>
+                    <strong>Ghost Mode</strong> is perfect for discreet AI assistance when you don't want others to see you're using AI.
+                  </li>
+                </ul>
+              </div>
+            </div>
+            
+            {/* Footer */}
+            <div className="flex items-center justify-end px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl flex-shrink-0">
+              <button 
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                onClick={() => setHelpModalOpen(false)}
+              >
+                Got it
+              </button>
             </div>
           </div>
         </div>
