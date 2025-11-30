@@ -103,7 +103,6 @@ export default function GoogleDocsUI({
   const [infoOpen, setInfoOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [personaModalOpen, setPersonaModalOpen] = useState(false);
-  const [personaIncludeStylization, setPersonaIncludeStylization] = useState(true);
   const [personaDocName, setPersonaDocName] = useState<string | null>(null);
   const [personaDocContent, setPersonaDocContent] = useState<string | null>(null);
   const [personaUploadError, setPersonaUploadError] = useState<string | null>(null);
@@ -652,7 +651,6 @@ ${html}
       onUpdatePersona({
         documentName: personaSettings?.documentName || '',
         documentContent: personaSettings?.documentContent || '',
-        includeStylization: personaSettings?.includeStylization ?? true,
         profileImage: base64,
       });
     };
@@ -752,7 +750,6 @@ ${html}
   const openPersonaModal = useCallback(() => {
     setPersonaDocName(personaSettings?.documentName || null);
     setPersonaDocContent(personaSettings?.documentContent || null);
-    setPersonaIncludeStylization(personaSettings?.includeStylization ?? true);
     setPersonaUploadError(null);
     setPersonaModalOpen(true);
     setProfileMenuOpen(false);
@@ -764,19 +761,17 @@ ${html}
       onUpdatePersona({
         documentName: personaDocName,
         documentContent: personaDocContent,
-        includeStylization: personaIncludeStylization,
         profileImage: personaSettings?.profileImage || null,
       });
     }
     setPersonaModalOpen(false);
-  }, [personaDocName, personaDocContent, personaIncludeStylization, personaSettings, onUpdatePersona]);
+  }, [personaDocName, personaDocContent, personaSettings, onUpdatePersona]);
 
   // Remove persona
   const removePersona = useCallback(() => {
     onUpdatePersona({
       documentName: '',
       documentContent: '',
-      includeStylization: true,
       profileImage: personaSettings?.profileImage || null,
     });
     setPersonaDocName(null);
@@ -1939,28 +1934,6 @@ ${html}
                 <p className="mt-2 text-sm text-red-600">{personaUploadError}</p>
               )}
               
-              {/* Stylization Toggle */}
-              <div className="mt-5 flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Include formatting style</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    AI will also mimic document structure, headings, and text formatting
-                  </p>
-                </div>
-                <button
-                  className={`relative w-11 h-6 rounded-full transition-colors ${
-                    personaIncludeStylization ? 'bg-blue-600' : 'bg-gray-300'
-                  }`}
-                  onClick={() => setPersonaIncludeStylization(!personaIncludeStylization)}
-                >
-                  <div 
-                    className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                      personaIncludeStylization ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-              
               {/* Current Persona Info */}
               {personaSettings?.documentContent && !personaDocName && (
                 <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
@@ -1976,8 +1949,7 @@ ${html}
                         Currently using: {personaSettings.documentName || 'Uploaded document'}
                       </p>
                       <p className="text-xs text-blue-600 mt-0.5">
-                        {personaSettings.documentContent.split(/\s+/).length} words • 
-                        Formatting {personaSettings.includeStylization ? 'enabled' : 'disabled'}
+                        {personaSettings.documentContent.split(/\s+/).length} words
                       </p>
                     </div>
                   </div>

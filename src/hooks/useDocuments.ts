@@ -24,7 +24,6 @@ export interface Document {
 export interface PersonaSettings {
   documentName: string;
   documentContent: string;
-  includeStylization: boolean;
   profileImage: string | null; // Base64 data URL
 }
 
@@ -1559,21 +1558,6 @@ Respond naturally without any special tags or formatting. Just have a normal con
 
 // Function to generate persona-aware system prompt
 function generatePersonaSystemPrompt(persona: PersonaSettings): string {
-  const stylizationInstructions = persona.includeStylization ? `
-## STYLIZATION ANALYSIS (Apply These Patterns)
-
-Analyze and replicate the following stylization patterns from the reference document:
-- Header/title formatting (sizes, capitalization, placement)
-- Paragraph structure and indentation
-- List formatting (bullet vs numbered, nesting)
-- Text alignment patterns
-- Spacing between sections
-- Any special formatting (bold, italic usage patterns)
-- Overall document structure and organization
-
-When writing, match these visual and structural patterns exactly.
-` : '';
-
   return `You are a writing assistant that has been configured to write EXACTLY like a specific person. Your PRIMARY PURPOSE is to perfectly mimic their writing style, voice, and patterns.
 
 ## YOUR IDENTITY
@@ -1600,7 +1584,7 @@ The following is a sample of the person's writing. Analyze it deeply for:
 ---BEGIN REFERENCE DOCUMENT---
 ${persona.documentContent}
 ---END REFERENCE DOCUMENT---
-${stylizationInstructions}
+
 ## CRITICAL WRITING RULES
 
 1. NEVER sound like generic AI. Sound like the person from the reference document.
