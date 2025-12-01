@@ -2005,7 +2005,11 @@ export function useDocuments() {
 
   // Send a chat message with direct document editing capability
   const sendMessage = useCallback(async (content: string, editorRef: React.RefObject<TiptapEditorHandle | null>, mode: ChatMode = 'edit', preSearchResults?: SearchResult[]) => {
-    if (!content.trim() || isLoading || !activeDocument) return;
+    console.log('[Chat] sendMessage called', { mode, hasPreSearchResults: !!preSearchResults, isLoading, hasActiveDocument: !!activeDocument });
+    if (!content.trim() || isLoading || !activeDocument) {
+      console.log('[Chat] sendMessage early return', { emptyContent: !content.trim(), isLoading, noActiveDocument: !activeDocument });
+      return;
+    }
 
     // Auto-generate title if document is untitled and this is the first message
     if (activeDocument.title === 'Untitled document' && activeDocument.chatMessages.length === 0) {
@@ -2042,6 +2046,7 @@ export function useDocuments() {
         : doc
     ));
 
+    console.log('[Chat] Setting isLoading=true, starting stream');
     setIsLoading(true);
     setError(null);
 
@@ -2142,9 +2147,13 @@ CRITICAL INSTRUCTIONS:
     // This is called from both onComplete and onError to handle the race condition
     // where search may complete before or after the stream ends
     const makeSearchFollowUpCall = async () => {
-      if (!pendingSearchResultsRef.current) return false;
+      console.log('[FollowUp] makeSearchFollowUpCall called', { hasPendingResults: !!pendingSearchResultsRef.current });
+      if (!pendingSearchResultsRef.current) {
+        console.log('[FollowUp] No pending search results, returning false');
+        return false;
+      }
       
-      console.log('[Search] Making follow-up call with search results');
+      console.log('[FollowUp] Making follow-up call with', pendingSearchResultsRef.current.length, 'search results');
       const searchResults = pendingSearchResultsRef.current;
       pendingSearchResultsRef.current = null; // Clear pending results
       
@@ -2399,49 +2408,70 @@ CRITICAL INSTRUCTIONS:
           };
       
       // Make follow-up call
-      console.log('[Search] Starting follow-up generation with', searchResults.length, 'sources');
+      console.log('[FollowUp] Starting follow-up generation with', searchResults.length, 'sources');
       await sendMessageStream([systemMessage, ...followUpHistory], {
         onToken: followUpHandleToken,
         onComplete: () => {
-          console.log('[Search] Follow-up generation complete');
-          if (editorRefStore.current) {
-            const finalContent = editorRefStore.current.getHTML();
+          console.log('[FollowUp] onComplete called');
+          try {
+            console.log('[FollowUp] Saving document content');
+            try {
+              if (editorRefStore.current) {
+                const finalContent = editorRefStore.current.getHTML();
+                setDocuments(prev => prev.map(doc => 
+                  doc.id === activeDocId 
+                    ? { ...doc, content: finalContent, updatedAt: Date.now() }
+                    : doc
+                ));
+              }
+            } catch (editorErr) {
+              console.error('[FollowUp] Error saving document content:', editorErr);
+            }
+            
+            console.log('[FollowUp] Marking message complete');
             setDocuments(prev => prev.map(doc => 
               doc.id === activeDocId 
-                ? { ...doc, content: finalContent, updatedAt: Date.now() }
+                ? { 
+                    ...doc, 
+                    chatMessages: doc.chatMessages.map(m => 
+                      m.id === followUpAssistantId 
+                        ? { ...m, content: streamingChatRef.current, isWriting: false }
+                        : m
+                    ),
+                    updatedAt: Date.now() 
+                  }
                 : doc
             ));
+          } catch (err) {
+            console.error('[FollowUp] Error in onComplete handler:', err);
+          } finally {
+            console.log('[FollowUp] onComplete finally - setting isLoading=false');
+            setIsLoading(false);
+            setIsWritingToDoc(false);
+            abortControllerRef.current = null;
           }
-          
-          setDocuments(prev => prev.map(doc => 
-            doc.id === activeDocId 
-              ? { 
-                  ...doc, 
-                  chatMessages: doc.chatMessages.map(m => 
-                    m.id === followUpAssistantId 
-                      ? { ...m, content: streamingChatRef.current, isWriting: false }
-                      : m
-                  ),
-                  updatedAt: Date.now() 
-                }
-              : doc
-          ));
-          
-          setIsLoading(false);
-          setIsWritingToDoc(false);
-          abortControllerRef.current = null;
         },
         onError: (followUpErr) => {
-          console.error('[Search] Follow-up generation error:', followUpErr);
-          if (followUpErr.name !== 'AbortError') {
-            setError(followUpErr.message);
+          console.log('[FollowUp] onError called', { name: followUpErr.name, message: followUpErr.message });
+          try {
+            if (followUpErr.name !== 'AbortError') {
+              console.log('[FollowUp] Setting error:', followUpErr.message);
+              setError(followUpErr.message);
+            } else {
+              console.log('[FollowUp] Abort error - not setting error state');
+            }
+          } catch (err) {
+            console.error('[FollowUp] Error in onError handler:', err);
+          } finally {
+            console.log('[FollowUp] onError finally - setting isLoading=false');
+            setIsLoading(false);
+            setIsWritingToDoc(false);
+            abortControllerRef.current = null;
           }
-          setIsLoading(false);
-          setIsWritingToDoc(false);
-          abortControllerRef.current = null;
         },
       }, selectedModel, abortControllerRef.current.signal);
       
+      console.log('[FollowUp] sendMessageStream returned');
       return true;
     };
 
@@ -2484,6 +2514,7 @@ CRITICAL INSTRUCTIONS:
               ));
             },
             onWriteStart: () => {
+              console.log('[Action] <write> tag started - AI is writing to document');
               saveScrollPosition();
               setIsWritingToDoc(true);
               setDocuments(prev => prev.map(doc => 
@@ -2501,6 +2532,7 @@ CRITICAL INSTRUCTIONS:
               ));
             },
             onWriteComplete: (writeContent) => {
+              console.log('[Action] </write> tag completed - content length:', writeContent.length);
               if (editorRefStore.current) {
                 // Convert text to HTML and insert it all at once
                 const htmlContent = textToHtml(writeContent);
@@ -2509,6 +2541,7 @@ CRITICAL INSTRUCTIONS:
               }
             },
             onEditStart: (findText) => {
+              console.log('[Action] <edit> tag started - finding text:', findText.substring(0, 50) + '...');
               saveScrollPosition();
               setIsWritingToDoc(true);
               setDocuments(prev => prev.map(doc => 
@@ -2533,13 +2566,17 @@ CRITICAL INSTRUCTIONS:
                   const result = findTextInDocument(doc, findText);
                   
                   if (result) {
+                    console.log('[Action] Found text to edit at positions:', result.from, '-', result.to);
                     editor.chain().focus().setTextSelection({ from: result.from, to: result.to }).deleteSelection().run();
+                  } else {
+                    console.log('[Action] Could not find text to edit');
                   }
                 }
                 editTargetRemoved = true;
               }
             },
             onEditComplete: (editContent) => {
+              console.log('[Action] </edit> tag completed - replacement length:', editContent.length);
               if (editorRefStore.current) {
                 // Insert the replacement content at the edit position
                 editorRefStore.current.insertContent(editContent);
@@ -2547,6 +2584,7 @@ CRITICAL INSTRUCTIONS:
               }
             },
             onFormat: (action) => {
+              console.log('[Action] <format> tag - type:', action.type, 'target:', action.target?.substring(0, 30), 'value:', action.value);
               saveScrollPosition();
               setIsWritingToDoc(true);
               setDocuments(prev => prev.map(doc => 
@@ -2569,6 +2607,7 @@ CRITICAL INSTRUCTIONS:
               }
             },
             onClear: () => {
+              console.log('[Action] <clear/> tag - clearing document');
               saveScrollPosition();
               setIsWritingToDoc(true);
               setDocuments(prev => prev.map(doc => 
@@ -2590,7 +2629,8 @@ CRITICAL INSTRUCTIONS:
                 restoreScrollPosition();
               }
             },
-            onInsertStart: () => {
+            onInsertStart: (action) => {
+              console.log('[Action] <insert> tag started - position:', action.position, 'target:', action.target);
               saveScrollPosition();
               setIsWritingToDoc(true);
               setDocuments(prev => prev.map(doc => 
@@ -2608,6 +2648,7 @@ CRITICAL INSTRUCTIONS:
               ));
             },
             onInsertComplete: (insertContent, action) => {
+              console.log('[Action] </insert> tag completed - position:', action.position, 'content length:', insertContent.length);
               if (editorRefStore.current) {
                 const editor = editorRefStore.current.getEditor();
                 if (editor) {
@@ -2729,98 +2770,132 @@ CRITICAL INSTRUCTIONS:
           });
         };
 
+    console.log('[Stream] Starting stream with model:', selectedModel);
     await sendMessageStream([systemMessage, ...chatHistory], {
       onToken: handleToken,
       onComplete: async () => {
-        // Check if a search is still in progress - wait for it to complete
-        // This handles the race condition where the stream finishes before search completes
-        if (searchInProgressRef.current) {
-          console.log('[Search] Stream completed but search still in progress - waiting...');
-          // Wait for search to complete (check every 100ms, max 30 seconds)
-          let waited = 0;
-          while (searchInProgressRef.current && waited < 30000) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-            waited += 100;
+        console.log('[Stream] onComplete called', { 
+          searchInProgress: searchInProgressRef.current, 
+          hasPendingSearchResults: !!pendingSearchResultsRef.current,
+          chatContentLength: streamingChatRef.current.length 
+        });
+        try {
+          // Check if a search is still in progress - wait for it to complete
+          // This handles the race condition where the stream finishes before search completes
+          if (searchInProgressRef.current) {
+            console.log('[Stream] Waiting for search to complete...');
+            // Wait for search to complete (check every 100ms, max 30 seconds)
+            let waited = 0;
+            while (searchInProgressRef.current && waited < 30000) {
+              await new Promise(resolve => setTimeout(resolve, 100));
+              waited += 100;
+            }
+            console.log('[Stream] Done waiting for search, waited:', waited, 'ms');
           }
-          console.log('[Search] Search finished after', waited, 'ms wait');
-        }
-        
-        // Check if we have pending search results
-        if (pendingSearchResultsRef.current) {
-          console.log('[Search] Stream completed with pending search results - making follow-up call');
-          await makeSearchFollowUpCall();
-          return;
-        }
-        
-        // Save final document content
-        if (editorRefStore.current) {
-          const finalContent = editorRefStore.current.getHTML();
-          setDocuments(prev => prev.map(doc => 
-            doc.id === activeDocId 
-              ? { ...doc, content: finalContent, updatedAt: Date.now() }
-              : doc
-          ));
-        }
-        
-        // Mark writing complete
-        setDocuments(prev => prev.map(doc => 
-          doc.id === activeDocId 
-            ? { 
-                ...doc, 
-                chatMessages: doc.chatMessages.map(m => 
-                  m.id === assistantId 
-                    ? { ...m, content: streamingChatRef.current, isWriting: false }
-                    : m
-                ),
-                updatedAt: Date.now() 
-              }
-            : doc
-        ));
-        
-        setIsLoading(false);
-        setIsWritingToDoc(false);
-        abortControllerRef.current = null;
-      },
-      onError: async (err) => {
-        // Check if we aborted due to a search - if so, make follow-up call with results
-        if (err.name === 'AbortError' && pendingSearchResultsRef.current) {
-          await makeSearchFollowUpCall();
-          return; // Don't run the normal abort handling
-        }
-        
-        // Don't show error or remove message if it was aborted by user
-        if (err.name === 'AbortError') {
-          // Keep the partial response, just mark as complete
+          
+          // Check if we have pending search results
+          if (pendingSearchResultsRef.current) {
+            console.log('[Stream] Has pending search results, making follow-up call');
+            await makeSearchFollowUpCall();
+            console.log('[Stream] Follow-up call completed');
+            return;
+          }
+          
+          // Save final document content
+          console.log('[Stream] Saving final document content');
+          try {
+            if (editorRefStore.current) {
+              const finalContent = editorRefStore.current.getHTML();
+              setDocuments(prev => prev.map(doc => 
+                doc.id === activeDocId 
+                  ? { ...doc, content: finalContent, updatedAt: Date.now() }
+                  : doc
+              ));
+            }
+          } catch (editorErr) {
+            console.error('[Stream] Error saving document content:', editorErr);
+          }
+          
+          // Mark writing complete
+          console.log('[Stream] Marking writing complete');
           setDocuments(prev => prev.map(doc => 
             doc.id === activeDocId 
               ? { 
                   ...doc, 
                   chatMessages: doc.chatMessages.map(m => 
                     m.id === assistantId 
-                      ? { ...m, content: streamingChatRef.current || '(stopped)', isWriting: false }
+                      ? { ...m, content: streamingChatRef.current, isWriting: false }
                       : m
                   ),
                   updatedAt: Date.now() 
                 }
               : doc
           ));
-        } else {
-          setError(err.message);
-          setDocuments(prev => prev.map(doc => 
-            doc.id === activeDocId 
-              ? { 
-                  ...doc, 
-                  chatMessages: doc.chatMessages.filter(m => m.id !== assistantId),
-                  updatedAt: Date.now() 
-                }
-              : doc
-          ));
+        } catch (err) {
+          console.error('[Stream] Error in onComplete handler:', err);
+        } finally {
+          console.log('[Stream] onComplete finally - setting isLoading=false');
+          setIsLoading(false);
+          setIsWritingToDoc(false);
+          abortControllerRef.current = null;
         }
-        setIsLoading(false);
-        setIsWritingToDoc(false);
-        abortControllerRef.current = null;
+      },
+      onError: async (err) => {
+        console.log('[Stream] onError called', { 
+          errorName: err.name, 
+          errorMessage: err.message,
+          hasPendingSearchResults: !!pendingSearchResultsRef.current 
+        });
+        try {
+          // Check if we aborted due to a search - if so, make follow-up call with results
+          if (err.name === 'AbortError' && pendingSearchResultsRef.current) {
+            console.log('[Stream] AbortError with pending search results - making follow-up call');
+            await makeSearchFollowUpCall();
+            console.log('[Stream] Follow-up call completed after abort');
+            return; // Don't run the normal abort handling
+          }
+          
+          // Don't show error or remove message if it was aborted by user
+          if (err.name === 'AbortError') {
+            console.log('[Stream] User aborted - keeping partial response');
+            // Keep the partial response, just mark as complete
+            setDocuments(prev => prev.map(doc => 
+              doc.id === activeDocId 
+                ? { 
+                    ...doc, 
+                    chatMessages: doc.chatMessages.map(m => 
+                      m.id === assistantId 
+                        ? { ...m, content: streamingChatRef.current || '(stopped)', isWriting: false }
+                        : m
+                    ),
+                    updatedAt: Date.now() 
+                  }
+                : doc
+            ));
+          } else {
+            console.log('[Stream] Actual error - removing message and showing error');
+            setError(err.message);
+            setDocuments(prev => prev.map(doc => 
+              doc.id === activeDocId 
+                ? { 
+                    ...doc, 
+                    chatMessages: doc.chatMessages.filter(m => m.id !== assistantId),
+                    updatedAt: Date.now() 
+                  }
+                : doc
+            ));
+          }
+        } catch (handlerErr) {
+          console.error('[Stream] Error in onError handler:', handlerErr);
+        } finally {
+          console.log('[Stream] onError finally - setting isLoading=false');
+          setIsLoading(false);
+          setIsWritingToDoc(false);
+          abortControllerRef.current = null;
+        }
       },
     }, selectedModel, abortControllerRef.current.signal);
+    console.log('[Stream] sendMessageStream returned - isLoading should now be false');
   }, [activeDocument, activeDocId, isLoading, selectedModel, personaSettings, selectedTemplate, generateTitleFromMessage]);
 
   const clearChat = useCallback(() => {
