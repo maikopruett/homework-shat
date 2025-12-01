@@ -341,11 +341,11 @@ const APA_TEMPLATE: EssayTemplate = {
   name: 'APA Format (7th Edition)',
   type: 'preset',
   htmlContent: `<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt"><strong>Title of Your Paper</strong></span></span></p>
-<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Your Name</span></span></p>
-<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Department, Institution</span></span></p>
-<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Course Number: Course Name</span></span></p>
-<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Instructor Name</span></span></p>
-<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Due Date</span></span></p>
+<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Your Name]</span></span></p>
+<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Department], [Institution Name]</span></span></p>
+<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Course Number]: [Class Name]</span></span></p>
+<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Professor's Name]</span></span></p>
+<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Current Date]</span></span></p>
 <p><span style="font-family: Times New Roman"><span style="font-size: 12pt"></span></span></p>
 <p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">This is the first paragraph of your essay. In APA format, the first line of each paragraph should be indented 0.5 inches. The entire paper should be double-spaced and use Times New Roman 12-point font. Do not add extra space between paragraphs.</span></span></p>
 <p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Continue your essay with additional paragraphs. Each paragraph should develop a specific point and flow logically from one to the next. Remember to cite your sources using in-text citations like (Author, Year) or Author (Year) stated that...</span></span></p>
@@ -356,15 +356,20 @@ const APA_TEMPLATE: EssayTemplate = {
 
 ### DOCUMENT STRUCTURE (in order):
 1. TITLE - Centered, Bold, Times New Roman 12pt
-2. AUTHOR NAME - Centered, Times New Roman 12pt
-3. DEPARTMENT AND INSTITUTION - Centered, Times New Roman 12pt
-4. COURSE INFO - Centered, Times New Roman 12pt
-5. INSTRUCTOR NAME - Centered, Times New Roman 12pt
-6. DUE DATE - Centered, Times New Roman 12pt
+2. AUTHOR NAME - Centered, Times New Roman 12pt (use [Your Name] if unknown)
+3. DEPARTMENT AND INSTITUTION - Centered, Times New Roman 12pt (use [Department], [Institution Name] if unknown)
+4. COURSE INFO - Centered, Times New Roman 12pt (use [Course Number]: [Class Name] if unknown)
+5. INSTRUCTOR NAME - Centered, Times New Roman 12pt (use [Professor's Name] if unknown)
+6. DATE - Centered, Times New Roman 12pt (ALWAYS use current date from system context)
 7. BLANK LINE
 8. BODY PARAGRAPHS - First-line indent 0.5in, Times New Roman 12pt
 9. REFERENCES HEADING - Centered, Bold, Times New Roman 12pt
 10. REFERENCE ENTRIES - Hanging indent (first line flush left, subsequent lines indented)
+
+### PERSONAL INFO RULES:
+- NEVER make up names, professors, courses, or institutions
+- Use placeholders if info not provided: [Your Name], [Professor's Name], [Class Name], [Institution Name]
+- ALWAYS use the current date provided in system context for the date field
 
 ### FORMATTING RULES:
 - Font: Times New Roman, 12pt throughout
@@ -390,10 +395,10 @@ const MLA_TEMPLATE: EssayTemplate = {
   id: 'preset-mla',
   name: 'MLA Format (9th Edition)',
   type: 'preset',
-  htmlContent: `<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">Your Name</span></span></p>
-<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">Professor's Name</span></span></p>
-<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">Course Name</span></span></p>
-<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">Date (Day Month Year)</span></span></p>
+  htmlContent: `<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Your Name]</span></span></p>
+<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Professor's Name]</span></span></p>
+<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Class Name]</span></span></p>
+<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Current Date]</span></span></p>
 <p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Title of Your Essay</span></span></p>
 <p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">This is the first paragraph of your essay. In MLA format, the first line of each paragraph should be indented half an inch (0.5 inches). The entire paper should be double-spaced and use Times New Roman 12-point font. The title should be centered but not bold, italicized, or underlined.</span></span></p>
 <p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Continue with your body paragraphs here. Each paragraph should make a clear point and support your thesis. When citing sources, use parenthetical citations with the author's last name and page number, like this (Smith 42). If you mention the author in the sentence, only include the page number: Smith argues that "quote here" (42).</span></span></p>
@@ -404,14 +409,19 @@ const MLA_TEMPLATE: EssayTemplate = {
   formattingInstructions: `## MLA FORMAT (9th Edition) TEMPLATE INSTRUCTIONS:
 
 ### DOCUMENT STRUCTURE (in order):
-1. YOUR NAME - Left-aligned, Times New Roman 12pt
-2. PROFESSOR'S NAME - Left-aligned, Times New Roman 12pt
-3. COURSE NAME - Left-aligned, Times New Roman 12pt
-4. DATE - Left-aligned, Times New Roman 12pt (format: Day Month Year, e.g., 15 November 2024)
+1. YOUR NAME - Left-aligned, Times New Roman 12pt (use [Your Name] if unknown)
+2. PROFESSOR'S NAME - Left-aligned, Times New Roman 12pt (use [Professor's Name] if unknown)
+3. COURSE NAME - Left-aligned, Times New Roman 12pt (use [Class Name] if unknown)
+4. DATE - Left-aligned, Times New Roman 12pt (ALWAYS use current date from system context, format: Day Month Year)
 5. TITLE - Centered, Times New Roman 12pt, NOT bold/italic/underlined
 6. BODY PARAGRAPHS - First-line indent 0.5in, Times New Roman 12pt
 7. WORKS CITED HEADING - Centered, Times New Roman 12pt, NOT bold
 8. WORKS CITED ENTRIES - Hanging indent (first line flush left, subsequent lines indented)
+
+### PERSONAL INFO RULES:
+- NEVER make up names, professors, or courses
+- Use placeholders if info not provided: [Your Name], [Professor's Name], [Class Name]
+- ALWAYS use the current date provided in system context for the date field
 
 ### FORMATTING RULES:
 - Font: Times New Roman, 12pt throughout
@@ -1211,6 +1221,30 @@ function applyFormatting(editor: TiptapEditorHandle, action: FormatAction): bool
 
 const SYSTEM_PROMPT = `You are a writing assistant integrated into a document editor. You help users write, edit, format, and improve their documents.
 
+## CRITICAL: Personal Information Rules
+
+NEVER hallucinate or make up personal information. If you don't know specific details from:
+- The user's persona/profile settings
+- Files or documents shared with you
+- Information explicitly provided in the chat
+
+Then you MUST use these placeholders:
+- User's name: [Your Name]
+- Professor's name: [Professor's Name]
+- Class/Course name: [Class Name]
+- Institution name: [Institution Name]
+- Any other unknown personal details: [Enter ___]
+
+ALWAYS use the current date provided in the system context for essay dates - never make up dates.
+
+Examples:
+- WRONG: "John Smith" (made up)
+- RIGHT: "[Your Name]"
+- WRONG: "Professor Johnson" (made up)
+- RIGHT: "[Professor's Name]"
+- WRONG: "English 101" (made up)
+- RIGHT: "[Class Name]"
+
 ## How to Sound Human (CRITICAL - READ CAREFULLY)
 
 Your writing must pass as human-written. AI detection works by predicting statistically probable text. Humans are chaotic, idiosyncratic, and occasionally imprecise. You must break the predictable patterns.
@@ -1559,6 +1593,20 @@ Respond naturally without any special tags or formatting. Just have a normal con
 // Function to generate persona-aware system prompt
 function generatePersonaSystemPrompt(persona: PersonaSettings): string {
   return `You are a writing assistant that has been configured to write EXACTLY like a specific person. Your PRIMARY PURPOSE is to perfectly mimic their writing style, voice, and patterns.
+
+## CRITICAL: Personal Information Rules
+
+For personal details like names, professor names, class names, etc.:
+1. FIRST check if the persona/profile contains this information (name from document: "${persona.documentName || 'not provided'}")
+2. THEN check if the user provided it in the chat or attached files
+3. If UNKNOWN, use placeholders:
+   - User's name: [Your Name]
+   - Professor's name: [Professor's Name]
+   - Class/Course name: [Class Name]
+   - Institution name: [Institution Name]
+   - Any other unknown personal details: [Enter ___]
+
+NEVER make up names, professors, or class details. ALWAYS use the current date provided in the system context for essay dates.
 
 ## YOUR IDENTITY
 
