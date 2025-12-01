@@ -2472,7 +2472,7 @@ ${html}
                 </ul>
               </div>
 
-              {/* Global Chat Messages */}
+              {/* Global Chat */}
               <div className="mb-6">
                 <h3 className="text-base font-semibold text-gray-900 mb-3">Global Chat</h3>
                 <p className="text-sm text-gray-700 leading-relaxed mb-2">
