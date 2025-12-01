@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { sendMessageStream } from '../api/openrouter';
-import type { ChatMessage } from '../api/openrouter';
+import type { ChatMessage, ToolDefinition, ToolCall } from '../api/openrouter';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
 import { searchExa, formatSearchResultsForAI, type SearchResult } from '../api/exa';
 
@@ -43,241 +43,154 @@ const GHOST_MODE_STORAGE_KEY = 'homework-ghost-mode';
 const TEMPLATES_STORAGE_KEY = 'homework-essay-templates';
 const DEFAULT_MODEL = 'x-ai/grok-4.1-fast:free';
 
-// Parser state for handling structured AI responses
-type ParseState = 'idle' | 'in_tag' | 'in_chat' | 'in_write' | 'in_edit' | 'in_format' | 'in_insert';
+// ==================== TOOL DEFINITIONS ====================
+
+const DOCUMENT_TOOLS: ToolDefinition[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'write_content',
+      description: 'Append content to the end of the document. Use this to add new text, paragraphs, or sections. Content will be added after any existing content.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          content: {
+            type: 'string',
+            description: 'The text content to add to the document. Use newlines for paragraphs. Do not use markdown - plain text only.',
+          },
+        },
+        required: ['content'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'clear_document',
+      description: 'Clear all content from the document. Use this before write_content when you need to completely rewrite or replace the document content.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_text',
+      description: 'Find specific text in the document and replace it with new text. Use for targeted edits to existing content.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          find_text: {
+            type: 'string',
+            description: 'The exact text to find and replace in the document.',
+          },
+          replace_with: {
+            type: 'string',
+            description: 'The new text to replace the found text with.',
+          },
+        },
+        required: ['find_text', 'replace_with'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'insert_content',
+      description: 'Insert content at a specific position in the document.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          content: {
+            type: 'string',
+            description: 'The text content to insert.',
+          },
+          position: {
+            type: 'string',
+            enum: ['start', 'end', 'before', 'after'],
+            description: 'Where to insert: "start" for beginning of document, "end" for end, "before" or "after" a target text.',
+          },
+          target_text: {
+            type: 'string',
+            description: 'Required when position is "before" or "after". The text to insert relative to.',
+          },
+        },
+        required: ['content', 'position'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'format_text',
+      description: 'Apply formatting to text in the document. Can target specific text or the entire document.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          format_type: {
+            type: 'string',
+            enum: [
+              'bold', 'italic', 'underline', 'strikethrough',
+              'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'paragraph',
+              'bulletList', 'orderedList', 'blockquote', 'codeBlock',
+              'align', 'textColor', 'highlight', 'fontSize', 'fontFamily',
+              'textIndent', 'removeFormat', 'link', 'horizontalRule'
+            ],
+            description: 'The type of formatting to apply.',
+          },
+          target: {
+            type: 'string',
+            description: 'The exact text to format, or "all" to format the entire document.',
+          },
+          value: {
+            type: 'string',
+            description: 'Value for formatting types that need it: color hex codes for textColor/highlight, alignment value (left/center/right/justify), font size (e.g. "14pt"), font family name, indent value (e.g. "0.5in"), or URL for links.',
+          },
+        },
+        required: ['format_type', 'target'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_web',
+      description: 'Search the web for information to include in the document. Use this when writing essays that need citations, researching topics, or finding facts. Returns search results that you should use for citations.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'The search query to find relevant information.',
+          },
+        },
+        required: ['query'],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
+// ==================== HELPER FUNCTIONS ====================
 
 interface FormatAction {
   type: string;
   target: string;
   value?: string;
-}
-
-interface InsertAction {
-  position: 'start' | 'end' | 'before' | 'after';
-  target?: string; // For before/after positioning
-}
-
-interface SearchAction {
-  query: string;
-}
-
-interface ParseContext {
-  state: ParseState;
-  buffer: string;
-  chatContent: string;
-  writeContent: string;
-  editFind: string;
-  editContent: string;
-  tagBuffer: string;
-  formatAction: FormatAction | null;
-  insertAction: InsertAction | null;
-  insertContent: string;
-  searchAction: SearchAction | null;
-}
-
-function createParseContext(): ParseContext {
-  return {
-    state: 'idle',
-    buffer: '',
-    chatContent: '',
-    writeContent: '',
-    editFind: '',
-    editContent: '',
-    tagBuffer: '',
-    formatAction: null,
-    insertAction: null,
-    insertContent: '',
-    searchAction: null,
-  };
-}
-
-// Parse incoming tokens and route them appropriately
-function parseToken(
-  ctx: ParseContext,
-  token: string,
-  callbacks: {
-    onChatToken: (token: string) => void;
-    onWriteStart: () => void;
-    onWriteComplete: (content: string) => void;
-    onEditStart: (findText: string) => void;
-    onEditComplete: (content: string) => void;
-    onFormat: (action: FormatAction) => void;
-    onClear: () => void;
-    onInsertStart: (action: InsertAction) => void;
-    onInsertComplete: (content: string, action: InsertAction) => void;
-    onSearch: (query: string) => void;
-  }
-): ParseContext {
-  const newCtx = { ...ctx };
-  
-  for (const char of token) {
-    switch (newCtx.state) {
-      case 'idle':
-        if (char === '<') {
-          newCtx.state = 'in_tag';
-          newCtx.tagBuffer = '';
-        }
-        // Ignore content outside of tags
-        break;
-        
-      case 'in_tag':
-        if (char === '>') {
-          const tag = newCtx.tagBuffer.trim();
-          const tagLower = tag.toLowerCase();
-          
-          if (tagLower === 'chat') {
-            newCtx.state = 'in_chat';
-          } else if (tagLower === 'write') {
-            newCtx.state = 'in_write';
-            newCtx.writeContent = '';
-            callbacks.onWriteStart();
-          } else if (tagLower.startsWith('edit')) {
-            // Parse find attribute: edit find="..."
-            const findMatch = newCtx.tagBuffer.match(/find=["']([^"']+)["']/i);
-            if (findMatch) {
-              newCtx.editFind = findMatch[1];
-              callbacks.onEditStart(newCtx.editFind);
-            }
-            newCtx.editContent = '';
-            newCtx.state = 'in_edit';
-          } else if (tagLower.startsWith('format')) {
-            // Parse format tag: <format type="bold" target="all" value="#ff0000"/>
-            const typeMatch = tag.match(/type=["']([^"']+)["']/i);
-            const targetMatch = tag.match(/target=["']([^"']+)["']/i);
-            const valueMatch = tag.match(/value=["']([^"']+)["']/i);
-            
-            if (typeMatch) {
-              const formatAction: FormatAction = {
-                type: typeMatch[1].toLowerCase(),
-                target: targetMatch ? targetMatch[1] : 'all',
-                value: valueMatch ? valueMatch[1] : undefined,
-              };
-              newCtx.formatAction = formatAction;
-              
-              // Self-closing tag detection
-              if (tag.endsWith('/')) {
-                callbacks.onFormat(formatAction);
-                newCtx.state = 'idle';
-              } else {
-                newCtx.state = 'in_format';
-              }
-            } else {
-              newCtx.state = 'idle';
-            }
-          } else if (tagLower === 'clear' || tagLower === 'clear/') {
-            // Self-closing clear tag - clear the document
-            callbacks.onClear();
-            newCtx.state = 'idle';
-          } else if (tagLower.startsWith('search')) {
-            // Parse search tag: <search query="..."/>
-            const queryMatch = newCtx.tagBuffer.match(/query=["']([^"']+)["']/i);
-            if (queryMatch) {
-              const searchQuery = queryMatch[1];
-              // Search is always self-closing
-              callbacks.onSearch(searchQuery);
-            }
-            newCtx.state = 'idle';
-          } else if (tagLower.startsWith('insert')) {
-            // Parse insert tag: <insert position="start">, <insert after="text">, <insert before="text">
-            const positionMatch = newCtx.tagBuffer.match(/position=["']([^"']+)["']/i);
-            const afterMatch = newCtx.tagBuffer.match(/after=["']([^"']+)["']/i);
-            const beforeMatch = newCtx.tagBuffer.match(/before=["']([^"']+)["']/i);
-            
-            let insertAction: InsertAction;
-            if (afterMatch) {
-              insertAction = { position: 'after', target: afterMatch[1] };
-            } else if (beforeMatch) {
-              insertAction = { position: 'before', target: beforeMatch[1] };
-            } else if (positionMatch) {
-              const pos = positionMatch[1].toLowerCase();
-              insertAction = { position: pos === 'start' ? 'start' : 'end' };
-            } else {
-              // Default to end if no position specified
-              insertAction = { position: 'end' };
-            }
-            
-            newCtx.insertAction = insertAction;
-            newCtx.insertContent = '';
-            newCtx.state = 'in_insert';
-            callbacks.onInsertStart(insertAction);
-          } else if (tagLower === '/insert') {
-            if (newCtx.insertAction) {
-              callbacks.onInsertComplete(newCtx.insertContent, newCtx.insertAction);
-              newCtx.insertAction = null;
-            }
-            newCtx.insertContent = '';
-            newCtx.state = 'idle';
-          } else if (tagLower === '/chat') {
-            newCtx.state = 'idle';
-          } else if (tagLower === '/write') {
-            callbacks.onWriteComplete(newCtx.writeContent);
-            newCtx.writeContent = '';
-            newCtx.state = 'idle';
-          } else if (tagLower === '/edit') {
-            callbacks.onEditComplete(newCtx.editContent);
-            newCtx.editContent = '';
-            newCtx.state = 'idle';
-          } else if (tagLower === '/format') {
-            if (newCtx.formatAction) {
-              callbacks.onFormat(newCtx.formatAction);
-              newCtx.formatAction = null;
-            }
-            newCtx.state = 'idle';
-          }
-          newCtx.tagBuffer = '';
-        } else {
-          newCtx.tagBuffer += char;
-        }
-        break;
-        
-      case 'in_chat':
-        if (char === '<') {
-          newCtx.state = 'in_tag';
-          newCtx.tagBuffer = '';
-        } else {
-          newCtx.chatContent += char;
-          callbacks.onChatToken(char);
-        }
-        break;
-        
-      case 'in_write':
-        if (char === '<') {
-          newCtx.state = 'in_tag';
-          newCtx.tagBuffer = '';
-        } else {
-          newCtx.writeContent += char;
-        }
-        break;
-        
-      case 'in_edit':
-        if (char === '<') {
-          newCtx.state = 'in_tag';
-          newCtx.tagBuffer = '';
-        } else {
-          newCtx.editContent += char;
-        }
-        break;
-        
-      case 'in_format':
-        // Format tags don't have content, just wait for closing tag
-        if (char === '<') {
-          newCtx.state = 'in_tag';
-          newCtx.tagBuffer = '';
-        }
-        break;
-        
-      case 'in_insert':
-        if (char === '<') {
-          newCtx.state = 'in_tag';
-          newCtx.tagBuffer = '';
-        } else {
-          newCtx.insertContent += char;
-        }
-        break;
-    }
-  }
-  
-  return newCtx;
 }
 
 function loadDocuments(): Document[] {
@@ -378,15 +291,7 @@ const APA_TEMPLATE: EssayTemplate = {
 - Body paragraphs: Left-aligned with 0.5 inch first-line indent
 - References heading: Centered, Bold
 - Reference entries: Hanging indent (reverse indent)
-- In-text citations: (Author, Year) format
-
-### HOW TO APPLY WITH FORMAT TAGS:
-1. Write content first with <write> or <clear/><write>
-2. Apply font: <format type="fontFamily" target="all" value="Times New Roman"/>
-3. Apply size: <format type="fontSize" target="all" value="12pt"/>
-4. Make title bold: <format type="bold" target="TITLE_TEXT"/>
-5. Center title block: <format type="align" target="TITLE_TEXT" value="center"/>
-6. Add paragraph indents: <format type="textIndent" target="PARAGRAPH_TEXT" value="0.5in"/>`,
+- In-text citations: (Author, Year) format`,
   createdAt: 0,
 };
 
@@ -430,16 +335,7 @@ const MLA_TEMPLATE: EssayTemplate = {
 - Body paragraphs: Left-aligned with 0.5 inch first-line indent
 - Works Cited heading: Centered, NOT bold (unlike APA)
 - Works Cited entries: Hanging indent
-- In-text citations: (Author Page) format, no comma
-
-### HOW TO APPLY WITH FORMAT TAGS:
-1. Write content first with <write> or <clear/><write>
-2. Apply font: <format type="fontFamily" target="all" value="Times New Roman"/>
-3. Apply size: <format type="fontSize" target="all" value="12pt"/>
-4. Center title: <format type="align" target="TITLE_TEXT" value="center"/>
-5. Center Works Cited: <format type="align" target="Works Cited" value="center"/>
-6. Add paragraph indents: <format type="textIndent" target="PARAGRAPH_TEXT" value="0.5in"/>
-7. Italicize book/journal titles in citations as needed`,
+- In-text citations: (Author Page) format, no comma`,
   createdAt: 0,
 };
 
@@ -948,7 +844,7 @@ function generateTemplateInstructions(htmlContent: string): string {
   }
   
   if (formatPatterns.hasIndentation) {
-    instructions.push(`- Paragraph Indentation: Apply first-line indent to body paragraphs using <format type="textIndent" target="PARAGRAPH_TEXT"/>`);
+    instructions.push(`- Paragraph Indentation: Apply first-line indent to body paragraphs`);
   }
   
   if (formatPatterns.hasBold || formatPatterns.hasItalic || formatPatterns.hasUnderline) {
@@ -957,24 +853,6 @@ function generateTemplateInstructions(htmlContent: string): string {
     if (formatPatterns.hasItalic) styles.push('italic');
     if (formatPatterns.hasUnderline) styles.push('underline');
     instructions.push(`- Text Styles Used: ${styles.join(', ')}`);
-  }
-
-  instructions.push('\n## HOW TO REPLICATE:\n');
-  instructions.push('1. First, write the content using <write> tags following the EXACT structure order above');
-  instructions.push('2. Then, apply formatting using <format> tags:');
-  
-  if (formatPatterns.fonts.size > 0) {
-    const mainFont = Array.from(formatPatterns.fonts)[0];
-    instructions.push(`   - <format type="fontFamily" target="all" value="${mainFont}"/>`);
-  }
-  if (formatPatterns.sizes.size > 0) {
-    const mainSize = Array.from(formatPatterns.sizes)[0];
-    instructions.push(`   - <format type="fontSize" target="all" value="${mainSize}"/>`);
-  }
-  instructions.push('   - Apply heading formats: <format type="h1" target="TITLE_TEXT"/>');
-  instructions.push('   - Apply alignments: <format type="align" target="TEXT_TO_CENTER" value="center"/>');
-  if (formatPatterns.hasIndentation) {
-    instructions.push('   - Apply paragraph indents: <format type="textIndent" target="PARAGRAPH_TEXT"/>');
   }
 
   return instructions.join('\n');
@@ -1086,7 +964,7 @@ function applyFormatting(editor: TiptapEditorHandle, action: FormatAction): bool
     case 'strike':
       editor.toggleStrike();
       break;
-    case 'textcolor':
+    case 'textColor':
     case 'text-color':
     case 'color':
       if (action.value) {
@@ -1094,21 +972,21 @@ function applyFormatting(editor: TiptapEditorHandle, action: FormatAction): bool
       }
       break;
     case 'highlight':
-    case 'highlightcolor':
+    case 'highlightColor':
     case 'highlight-color':
-    case 'backgroundcolor':
+    case 'backgroundColor':
     case 'background-color':
       if (action.value) {
         editor.setHighlight(action.value);
       }
       break;
-    case 'fontsize':
+    case 'fontSize':
     case 'font-size':
       if (action.value) {
         editor.setFontSize(action.value);
       }
       break;
-    case 'fontfamily':
+    case 'fontFamily':
     case 'font-family':
     case 'font':
       if (action.value) {
@@ -1144,15 +1022,15 @@ function applyFormatting(editor: TiptapEditorHandle, action: FormatAction): bool
     case 'normal':
       editor.setParagraph();
       break;
-    case 'bulletlist':
+    case 'bulletList':
     case 'bullet-list':
     case 'bullets':
       editor.toggleBulletList();
       break;
-    case 'orderedlist':
+    case 'orderedList':
     case 'ordered-list':
     case 'numbered':
-    case 'numberlist':
+    case 'numberList':
     case 'number-list':
       editor.toggleOrderedList();
       break;
@@ -1160,28 +1038,28 @@ function applyFormatting(editor: TiptapEditorHandle, action: FormatAction): bool
     case 'quote':
       editor.toggleBlockquote();
       break;
-    case 'codeblock':
+    case 'codeBlock':
     case 'code-block':
     case 'code':
       editor.toggleCodeBlock();
       break;
-    case 'horizontalrule':
+    case 'horizontalRule':
     case 'horizontal-rule':
     case 'hr':
     case 'divider':
       editor.insertHorizontalRule();
       break;
     case 'align':
-    case 'textalign':
+    case 'textAlign':
     case 'text-align':
       if (action.value) {
         const alignValue = action.value.toLowerCase() as 'left' | 'center' | 'right' | 'justify';
         editor.setTextAlign(alignValue);
       }
       break;
-    case 'removeformat':
+    case 'removeFormat':
     case 'remove-format':
-    case 'clearformat':
+    case 'clearFormat':
     case 'clear-format':
     case 'clear':
       editor.clearFormatting();
@@ -1191,10 +1069,10 @@ function applyFormatting(editor: TiptapEditorHandle, action: FormatAction): bool
         editor.setLink(action.value);
       }
       break;
-    case 'textindent':
+    case 'textIndent':
     case 'text-indent':
     case 'indent':
-    case 'firstlineindent':
+    case 'firstLineIndent':
     case 'first-line-indent':
       if (action.value) {
         editor.setTextIndent(action.value);
@@ -1203,7 +1081,7 @@ function applyFormatting(editor: TiptapEditorHandle, action: FormatAction): bool
         editor.setTextIndent('2em');
       }
       break;
-    case 'removeindent':
+    case 'removeIndent':
     case 'remove-indent':
     case 'unindent':
       editor.unsetTextIndent();
@@ -1221,14 +1099,11 @@ function applyFormatting(editor: TiptapEditorHandle, action: FormatAction): bool
 
 const SYSTEM_PROMPT = `You are a writing assistant integrated into a document editor. You help users write, edit, format, and improve their documents.
 
+You have access to tools that allow you to modify the document directly. Use these tools to help the user with their requests.
+
 ## CRITICAL: Personal Information Rules
 
-NEVER hallucinate or make up personal information. If you don't know specific details from:
-- The user's persona/profile settings
-- Files or documents shared with you
-- Information explicitly provided in the chat
-
-Then you MUST use these placeholders:
+NEVER hallucinate or make up personal information. If you don't know specific details, use these placeholders:
 - User's name: [Your Name]
 - Professor's name: [Professor's Name]
 - Class/Course name: [Class Name]
@@ -1236,14 +1111,6 @@ Then you MUST use these placeholders:
 - Any other unknown personal details: [Enter ___]
 
 ALWAYS use the current date provided in the system context for essay dates - never make up dates.
-
-Examples:
-- WRONG: "John Smith" (made up)
-- RIGHT: "[Your Name]"
-- WRONG: "Professor Johnson" (made up)
-- RIGHT: "[Professor's Name]"
-- WRONG: "English 101" (made up)
-- RIGHT: "[Class Name]"
 
 ## How to Sound Human (CRITICAL - READ CAREFULLY)
 
@@ -1270,14 +1137,12 @@ Use phrases like:
 - "I'm not entirely sure, but," "This could be wrong, but," "I think"
 - "probably," "maybe," "from what I can tell"
 
-NOTE: Hedging should feel natural, not formulaic. Don't start introductions with "I suspect the key takeaway is..." (that's robotic). Instead, weave uncertainty into your actual arguments.
-
 ### 3. USE "LOW PROBABILITY" VOCABULARY
 
 AI chooses the most statistically probable word. Humans sometimes choose words that are slightly "off" or colorful.
 
 BAD: "The question is significant."
-GOOD: "This is a very pondering question." (An AI would say "thought-provoking"; "pondering" is a human quirk)
+GOOD: "This is a very pondering question."
 
 Allow slightly awkward or unexpected word choices. Use metaphors that aren't perfectly polished. Be a little imprecise sometimes.
 
@@ -1317,8 +1182,6 @@ NEVER start with:
 - "X is one of the most remarkable/fascinating..."
 
 Instead, start with a specific fact, a question, or jump straight in.
-BAD: "Turtles have intrigued people for ages with their tough shells."
-GOOD: "A turtle's shell isn't just armor. It's fused to its skeleton, so they can't crawl out like hermit crabs do."
 
 ### 8. BE SPECIFIC, NOT GENERIC
 
@@ -1327,34 +1190,9 @@ GOOD: "Plastic bags kill thousands of sea turtles yearly because they look exact
 
 ### 9. FOR CITATIONS - BE COMPLETE AND ACCURATE (CRITICAL)
 
-**NEVER create "ghost citations"** - every in-text citation MUST have a corresponding Works Cited/References entry. This is a major AI tell.
+**NEVER create "ghost citations"** - every in-text citation MUST have a corresponding Works Cited/References entry.
 
-BAD: Essay cites "(Mitchell and Buhlmann)" but Works Cited has no Mitchell and Buhlmann entry.
-GOOD: Every single (Author) reference in the text appears in the Works Cited with full details.
-
-**Before finishing any essay with citations:**
-1. List every in-text citation you used
-2. Verify each one has a complete Works Cited entry
-3. If you can't provide full citation details for a source, DON'T cite it in-text
-
-**MLA Format (8th edition):**
-- In-text: (Author's Last Name) or (Author's Last Name Page#)
-- Works Cited entry: Last, First. "Title." Container, Publisher, Date, URL. Accessed Day Month Year.
-- Alphabetize by author last name
-- Hanging indent (second line indented)
-
-**APA Format (7th edition):**
-- In-text: (Author, Year) or (Author, Year, p. #)
-- References entry: Author, A. A. (Year). Title. Publisher. URL
-- Alphabetize by author last name
-- Hanging indent
-
-**Use search results EXACTLY:**
-- Use the EXACT author names provided in search results
-- Use the EXACT title provided
-- If multiple authors, cite the first author listed
-- Don't invent or modify citation details
-- If a source doesn't have an author, use the organization name
+When you need to cite sources, use the search_web tool first to find real sources, then cite them accurately.
 
 ### 10. AVOID DRAMATIC/MARKETING TONE
 
@@ -1363,9 +1201,6 @@ Don't use:
 - "X flipped the script" or "X changed the game"
 - "Reality hit harder" or similar dramatic pivots
 - Rhetorical questions as transitions
-
-BAD: "Costs ballooned. Reality hit harder. Enter SpaceX."
-GOOD: "The Shuttle's costs exceeded projections by wide margins, which opened the door for commercial alternatives."
 
 ### 11. AVOID META-COMMENTARY (Major AI Tell)
 
@@ -1382,191 +1217,56 @@ BANNED meta-commentary:
 
 Just make your points. Don't announce them.
 
-BAD: "Restating it: human actions are overwhelming these survivors."
-GOOD: "Human actions are overwhelming these survivors."
-
-### 12. DON'T MIX FORCED CASUAL WITH FORMAL CITATIONS
-
-This is a dead giveaway. If you're writing an academic paper with citations, maintain a consistent academic (but natural) tone. Don't sprinkle slang into a cited essay.
-
-BAD: "Turtles might seem like slow, shell-wearing oddballs... (Smith 2023)."
-GOOD: "Turtles have survived for over 200 million years, outlasting the dinosaurs (Smith 2023)."
-
-Avoid these "trying too hard to sound casual" phrases in cited essays:
-- "oddballs", "crank it up", "get this:", "so yeah", "pretty much", "a lot"
-- "killer adaptations", "landlubbers", "munch on"
-- Fragment sentences meant to sound breezy: "Omnivores, most of 'em."
-
-Academic papers can still be readable and engaging without forcing slang. Use clear, direct language instead.
-
-### 13. AVOID FORCED FILLER PHRASES
-
-These phrases scream "AI trying to sound human":
-- "so yeah" (especially at the end of sentences)
-- "And get this:"
-- "Here's the thing:"
-- "Pretty much"
-- "kind of a big deal"
-- "you know"
-- "I mean"
-
 ### BANNED WORDS AND PHRASES
 
 Never use these AI-tell words:
-elevate, delve, innovative, captivating, streamline, leverage, multifaceted, comprehensive, crucial, diverse, foster, landscape, myriad, nuanced, paradigm, plethora, realm, robust, seamless, synergy, tapestry, underscore, unique, utilise/utilize, vibrant, vital, crucial, pivotal, groundbreaking, cutting-edge
+elevate, delve, innovative, captivating, streamline, leverage, multifaceted, comprehensive, crucial, diverse, foster, landscape, myriad, nuanced, paradigm, plethora, realm, robust, seamless, synergy, tapestry, underscore, unique, utilise/utilize, vibrant, vital, pivotal, groundbreaking, cutting-edge
 
 Never use these phrases:
-"It's not just about X, it's about Y", "In conclusion", "This essay will explore", "As we have seen", "game-changer", "at its core", "when it comes to", "the question of X is", "it is worth noting", "Restating it:", "I suspect the key takeaway"
+"It's not just about X, it's about Y", "In conclusion", "This essay will explore", "As we have seen", "game-changer", "at its core", "when it comes to", "the question of X is", "it is worth noting"
 
----
+## How to Use the Tools
 
-CRITICAL: You MUST respond using this exact structured format with XML-like tags:
+You have the following tools available:
 
-## Available Actions:
+1. **write_content**: Append text to the end of the document. Use for adding new content.
+2. **clear_document**: Clear all document content. Use before write_content when rewriting/replacing.
+3. **edit_text**: Find and replace specific text. Use for targeted edits.
+4. **insert_content**: Insert at start, end, before, or after specific text.
+5. **format_text**: Apply formatting (bold, italic, headings, colors, alignment, etc.)
+6. **search_web**: Search for information when you need citations or facts.
 
-### 1. APPENDING new content (adds to end of document):
-<chat>Brief acknowledgment</chat><write>Content to ADD to document</write>
-NOTE: <write> only APPENDS. Use this for empty documents or adding new sections.
+### Common Patterns:
 
-### 2. INSERTING text at a specific position:
-<chat>Brief acknowledgment</chat><insert position="start">Content to insert</insert>
-<chat>Brief acknowledgment</chat><insert after="existing text">Content to insert after</insert>
-<chat>Brief acknowledgment</chat><insert before="existing text">Content to insert before</insert>
-NOTE: Use this to add content at the beginning, end, or relative to existing text WITHOUT replacing anything.
+**Writing new content to empty document:**
+- Use write_content directly
 
-### 3. EDITING specific text (find and replace):
-<chat>Brief acknowledgment</chat><edit find="exact text to find">Replacement text</edit>
-NOTE: Use this for small, targeted changes to existing content.
+**Rewriting/replacing existing content:**
+- First use clear_document
+- Then use write_content with the new content
 
-### 4. REWRITING the entire document (clear and replace):
-<chat>Brief acknowledgment</chat><clear/><write>Complete new content</write>
-NOTE: ALWAYS use <clear/> first when rewriting, improving, or creating a new version of existing content. This prevents duplicate content.
+**Making small edits:**
+- Use edit_text with the exact text to find and the replacement
 
-### 5. FORMATTING text (bold, italic, colors, headings, lists, etc.):
-<chat>Brief acknowledgment</chat><format type="TYPE" target="TARGET" value="VALUE"/>
+**Adding content at the beginning:**
+- Use insert_content with position="start"
 
-### 6. SEARCHING for information (research, facts, citations):
-<search query="your search query"/>
-NOTE: Use this when writing essays that need citations, verifying facts, or gathering current information. Search results will be provided back to you, then you can write content using those sources. ALWAYS use search for:
-- Essays requiring academic sources or citations
-- Topics that need current/recent information
-- Fact-checking or verification
-- Research papers or reports
+**Formatting after writing:**
+- First write content
+- Then use format_text to apply styling
 
-**Example - Essay with research:**
-<chat>Let me research that first.</chat><search query="climate change effects on coral reefs scientific studies"/>
+**Research for citations:**
+- Use search_web to find sources
+- Then write content using those sources
 
-After receiving search results, you'll write the content using those sources and cite them properly with URLs.
+## Response Guidelines
 
-### Format Types Available:
-
-**Text Styling:**
-- bold, italic, underline, strikethrough
-- textColor (with value like "#ff0000" or "red")
-- highlight (with value for background color)
-- fontSize (with value like "14pt" or "18")
-- fontFamily (with value like "Arial" or "Times New Roman")
-- textIndent (with value like "2em" for essay-style first-line paragraph indentation; default "2em" if no value)
-
-**Headings:**
-- h1, h2, h3, h4, h5, h6 (for different heading levels)
-- paragraph (to convert back to normal text)
-
-**Block Elements:**
-- bulletList (creates bulleted list)
-- orderedList (creates numbered list)
-- blockquote (creates a quote block)
-- codeBlock (creates a code block)
-- horizontalRule (inserts a horizontal divider)
-
-**Alignment:**
-- align (with value: "left", "center", "right", "justify")
-
-**Other:**
-- removeFormat (clears all formatting)
-- link (with value for the URL)
-
-### Target Options:
-- "all" - applies to entire document
-- Exact text string - applies to that specific text
-
-## Example Responses:
-
-**Making text bold:**
-<chat>Done, made it bold.</chat><format type="bold" target="all"/>
-
-**Changing text color:**
-<chat>Changed it to blue.</chat><format type="textColor" target="all" value="#0000ff"/>
-
-**Creating a heading:**
-<chat>Made that a heading.</chat><format type="h1" target="Introduction"/>
-
-**Creating a bullet list:**
-<chat>Turned that into a bullet list.</chat><format type="bulletList" target="all"/>
-
-**Multiple formatting actions:**
-<chat>Made 'dogs' red and bold.</chat><format type="bold" target="dogs"/><format type="textColor" target="dogs" value="#ff0000"/>
-
-**Adding essay-style paragraph indentation (tabs):**
-<chat>Added first-line indentation to all paragraphs.</chat><format type="textIndent" target="all"/>
-
-**Editing existing text:**
-<chat>Fixed that for you.</chat><edit find="thousands of years">millennia</edit>
-
-**Inserting text at the beginning:**
-<chat>Added your name at the top.</chat><insert position="start">John Smith
-
-</insert>
-
-**Inserting text after specific content:**
-<chat>Added a note after the introduction.</chat><insert after="Introduction">
-
-Note: This is important context.
-
-</insert>
-
-## Rules:
-1. <chat> section: keep it short and casual (1-2 sentences max, no fluff)
-2. You can use multiple actions in one response
-3. For formatting, use self-closing tags with />
-4. The target for format should be the EXACT text from the document, or "all" for everything
-5. For colors, use hex codes like "#ff0000" or color names like "red", "blue"
-6. If user asks a question not requiring document changes, just use <chat>
-7. Apply formatting AFTER writing content so the text exists first
-8. Sound human. Be direct, skip the pleasantries, and don't over-explain.
-9. NEVER use markdown syntax (# ## * ** _ etc.) in <write> content. Write plain text, then use <format> tags for styling.
-10. Use <search> when writing essays or content that needs citations, facts, or research - especially academic work.
-11. NEVER use em-dashes (—) or en-dashes (–). They are a major AI tell. Use commas, semicolons, parentheses, or separate sentences instead.
-12. You can see the document's current styling (fonts, colors, alignments, headings, etc.) in the "Current Document Styling" section. Use this to:
-    - Match existing formatting when adding new content
-    - Understand what formatting has already been applied
-    - Avoid re-applying formatting that already exists
-    - Answer questions about the document's appearance
-
-## CRITICAL - When to use each action:
-- <write> ONLY APPENDS content to the end of the document. It NEVER replaces existing content.
-- <insert position="start"> adds content at the BEGINNING of the document (for headers, names, titles at top)
-- <insert after="text"> or <insert before="text"> adds content relative to existing text WITHOUT replacing it
-- <edit find="..."> for small targeted changes - finds and REPLACES specific text
-- <clear/><write> for complete rewrites, new versions, or when asked to "redo", "rewrite", "make it better", "turn it into", etc.
-- NEVER append a new version below the old one. Either edit specific parts OR clear and rewrite.
-- When asked to "add something to the top" or "put my name at the beginning", use <insert position="start">, NOT <clear/><write>.
-
-Example - Rewriting an essay:
-<chat>Here's the improved version.</chat><clear/><write>New essay content here...</write>
-
-## Example - Writing an Essay with Headings:
-<chat>Here's your essay.</chat><write>The Remarkable World of Turtles
-
-Introduction
-
-Turtles have captivated humans for centuries...
-
-Biology of Turtles
-
-Turtles possess remarkable anatomy...</write><format type="h1" target="The Remarkable World of Turtles"/><format type="h2" target="Introduction"/><format type="h2" target="Biology of Turtles"/>
-
-Notice: headings are written as plain text, then formatted with <format type="h1"> or <format type="h2"> tags.`;
+1. Be brief in your chat responses. Get to the point.
+2. When editing the document, use the tools - don't just describe what you would do.
+3. For rewrites, ALWAYS clear first then write. Never append a new version below the old one.
+4. Apply formatting AFTER writing content.
+5. Sound human. Be direct, skip pleasantries.
+6. When asked a question that doesn't need document changes, just answer without using tools.`;
 
 const CHAT_MODE_SYSTEM_PROMPT = `You are a writing assistant helping a user with their document. You can see the document content and its styling/formatting, but you CANNOT edit it directly in this mode.
 
@@ -1580,7 +1280,7 @@ const CHAT_MODE_SYSTEM_PROMPT = `You are a writing assistant helping a user with
 
 In this CHAT MODE, you can:
 - Answer questions about the document
-- Describe the document's current formatting and styling (you can see fonts, colors, headings, alignments, bold/italic text, etc.)
+- Describe the document's current formatting and styling
 - Provide feedback and suggestions on both content and formatting
 - Discuss ideas and brainstorm
 - Explain concepts related to the writing
@@ -1588,7 +1288,7 @@ In this CHAT MODE, you can:
 
 You CANNOT directly edit the document in this mode. If the user wants you to make changes, suggest they switch to Edit mode.
 
-Respond naturally without any special tags or formatting. Just have a normal conversation.`;
+Respond naturally without using any tools. Just have a normal conversation.`;
 
 // Function to generate persona-aware system prompt
 function generatePersonaSystemPrompt(persona: PersonaSettings): string {
@@ -1604,7 +1304,6 @@ For personal details like names, professor names, class names, etc.:
    - Professor's name: [Professor's Name]
    - Class/Course name: [Class Name]
    - Institution name: [Institution Name]
-   - Any other unknown personal details: [Enter ___]
 
 NEVER make up names, professors, or class details. ALWAYS use the current date provided in the system context for essay dates.
 
@@ -1620,15 +1319,6 @@ You are now channeling the writing style of the person who wrote the reference d
 
 ## REFERENCE DOCUMENT (Study This Carefully)
 
-The following is a sample of the person's writing. Analyze it deeply for:
-- Voice and tone (formal, casual, academic, conversational)
-- Sentence structure patterns (short punchy sentences? long flowing ones? mixed?)
-- Vocabulary choices (simple words? complex? field-specific jargon?)
-- Punctuation habits (heavy comma use? semicolons? parenthetical asides?)
-- Paragraph lengths and transitions
-- How they express opinions and arguments
-- Any quirks or distinctive patterns
-
 ---BEGIN REFERENCE DOCUMENT---
 ${persona.documentContent}
 ---END REFERENCE DOCUMENT---
@@ -1637,102 +1327,48 @@ ${persona.documentContent}
 
 1. NEVER sound like generic AI. Sound like the person from the reference document.
 2. If the reference shows informal writing, be informal. If formal, be formal.
-3. Match their sentence rhythm exactly. If they write short sentences, you write short sentences.
+3. Match their sentence rhythm exactly.
 4. Use their vocabulary level. Don't upgrade or downgrade it.
-5. Copy their punctuation style. If they love commas, use commas. If they avoid them, avoid them.
+5. Copy their punctuation style.
 6. Mirror how they structure arguments or present information.
 7. NEVER use em-dashes (—) or en-dashes (–) unless the reference document uses them frequently.
 
-## THINGS TO AVOID
+## How to Use the Tools
 
-- Don't sound more polished or professional than the reference
-- Don't add filler phrases the reference doesn't use
-- Don't use transition words if the reference doesn't
-- Don't be more or less verbose than the reference style
-- Don't impose your own structure; follow theirs
+You have the following tools available:
 
----
+1. **write_content**: Append text to the end of the document. Use for adding new content.
+2. **clear_document**: Clear all document content. Use before write_content when rewriting/replacing.
+3. **edit_text**: Find and replace specific text. Use for targeted edits.
+4. **insert_content**: Insert at start, end, before, or after specific text.
+5. **format_text**: Apply formatting (bold, italic, headings, colors, alignment, etc.)
+6. **search_web**: Search for information when you need citations or facts.
 
-CRITICAL: You MUST respond using this exact structured format with XML-like tags:
+### Common Patterns:
 
-## Available Actions:
+**Writing new content to empty document:**
+- Use write_content directly
 
-### 1. APPENDING new content (adds to end of document):
-<chat>Brief acknowledgment</chat><write>Content to ADD to document</write>
-NOTE: <write> only APPENDS. Use this for empty documents or adding new sections.
+**Rewriting/replacing existing content:**
+- First use clear_document
+- Then use write_content with the new content
 
-### 2. INSERTING text at a specific position:
-<chat>Brief acknowledgment</chat><insert position="start">Content to insert</insert>
-<chat>Brief acknowledgment</chat><insert after="existing text">Content to insert after</insert>
-<chat>Brief acknowledgment</chat><insert before="existing text">Content to insert before</insert>
-NOTE: Use this to add content at the beginning, end, or relative to existing text WITHOUT replacing anything.
+**Making small edits:**
+- Use edit_text with the exact text to find and the replacement
 
-### 3. EDITING specific text (find and replace):
-<chat>Brief acknowledgment</chat><edit find="exact text to find">Replacement text</edit>
-NOTE: Use this for small, targeted changes to existing content.
+**Adding content at the beginning:**
+- Use insert_content with position="start"
 
-### 4. REWRITING the entire document (clear and replace):
-<chat>Brief acknowledgment</chat><clear/><write>Complete new content</write>
-NOTE: ALWAYS use <clear/> first when rewriting, improving, or creating a new version of existing content. This prevents duplicate content.
+**Formatting after writing:**
+- First write content
+- Then use format_text to apply styling
 
-### 5. FORMATTING text (bold, italic, colors, headings, lists, etc.):
-<chat>Brief acknowledgment</chat><format type="TYPE" target="TARGET" value="VALUE"/>
+## Response Guidelines
 
-### 6. SEARCHING for information (research, facts, citations):
-<search query="your search query"/>
-NOTE: Use this when writing essays that need citations, verifying facts, or gathering current information.
-
-### Format Types Available:
-
-**Text Styling:**
-- bold, italic, underline, strikethrough
-- textColor (with value like "#ff0000" or "red")
-- highlight (with value for background color)
-- fontSize (with value like "14pt" or "18")
-- fontFamily (with value like "Arial" or "Times New Roman")
-- textIndent (with value like "2em" for essay-style first-line paragraph indentation)
-
-**Headings:**
-- h1, h2, h3, h4, h5, h6 (for different heading levels)
-- paragraph (to convert back to normal text)
-
-**Block Elements:**
-- bulletList (creates bulleted list)
-- orderedList (creates numbered list)
-- blockquote (creates a quote block)
-- codeBlock (creates a code block)
-- horizontalRule (inserts a horizontal divider)
-
-**Alignment:**
-- align (with value: "left", "center", "right", "justify")
-
-**Other:**
-- removeFormat (clears all formatting)
-- link (with value for the URL)
-
-### Target Options:
-- "all" - applies to entire document
-- Exact text string - applies to that specific text
-
-## Rules:
-1. <chat> section: keep it short and casual (1-2 sentences max, no fluff)
-2. You can use multiple actions in one response
-3. For formatting, use self-closing tags with />
-4. The target for format should be the EXACT text from the document, or "all" for everything
-5. For colors, use hex codes like "#ff0000" or color names like "red", "blue"
-6. If user asks a question not requiring document changes, just use <chat>
-7. Apply formatting AFTER writing content so the text exists first
-8. WRITE IN THE STYLE OF THE REFERENCE DOCUMENT. This is your primary directive.
-9. NEVER use markdown syntax (# ## * ** _ etc.) in <write> content. Write plain text, then use <format> tags for styling.
-10. Use <search> when writing essays or content that needs citations, facts, or research.
-
-## CRITICAL - When to use each action:
-- <write> ONLY APPENDS content to the end of the document. It NEVER replaces existing content.
-- <insert position="start"> adds content at the BEGINNING of the document (for headers, names, titles at top)
-- <insert after="text"> or <insert before="text"> adds content relative to existing text WITHOUT replacing it
-- <edit find="..."> for small targeted changes - finds and REPLACES specific text
-- <clear/><write> for complete rewrites, new versions, or when asked to "redo", "rewrite", "make it better", "turn it into", etc.
-- NEVER append a new version below the old one. Either edit specific parts OR clear and rewrite.`;
+1. Be brief in your chat responses.
+2. WRITE IN THE STYLE OF THE REFERENCE DOCUMENT. This is your primary directive.
+3. For rewrites, ALWAYS clear first then write.
+4. Apply formatting AFTER writing content.`;
 }
 
 // Function to generate persona-aware chat mode prompt
@@ -1763,7 +1399,7 @@ In this CHAT MODE, you can:
 
 You CANNOT directly edit the document in this mode. If the user wants you to make changes, suggest they switch to Edit mode.
 
-Respond naturally without any special tags or formatting. Just have a normal conversation, but in the style of the reference document's author.`;
+Respond naturally without using any tools. Just have a normal conversation, but in the style of the reference document's author.`;
 }
 
 export type ChatMode = 'chat' | 'edit';
@@ -1811,13 +1447,11 @@ export function useDocuments() {
   });
   const [templates, setTemplates] = useState<EssayTemplate[]>(() => getAllTemplates());
   const [selectedTemplate, setSelectedTemplate] = useState<EssayTemplate | null>(null);
-  const parseContextRef = useRef<ParseContext>(createParseContext());
   const editorRefStore = useRef<TiptapEditorHandle | null>(null);
   const streamingChatRef = useRef<string>('');
   const abortControllerRef = useRef<AbortController | null>(null);
-  const searchInProgressRef = useRef<boolean>(false);
-  const pendingSearchResultsRef = useRef<SearchResult[] | null>(null);
   const savedScrollPositionRef = useRef<number | null>(null);
+  const pendingSearchResultsRef = useRef<SearchResult[] | null>(null);
 
   // Helper function to find the scrollable container (parent with overflow-y-auto)
   const findScrollableContainer = useCallback((editorElement: HTMLElement | null): HTMLElement | null => {
@@ -2051,8 +1685,251 @@ export function useDocuments() {
     }
   }, []);
 
-  // Send a chat message with direct document editing capability
-  const sendMessage = useCallback(async (content: string, editorRef: React.RefObject<TiptapEditorHandle | null>, mode: ChatMode = 'edit', preSearchResults?: SearchResult[]) => {
+  // Tool execution handler
+  const executeToolCall = useCallback(async (
+    toolCall: ToolCall,
+    assistantId: string,
+    currentDate: string
+  ): Promise<ChatMessage> => {
+    const { name, arguments: argsJson } = toolCall.function;
+    let args: Record<string, unknown>;
+    
+    try {
+      args = JSON.parse(argsJson);
+    } catch {
+      return {
+        role: 'tool',
+        tool_call_id: toolCall.id,
+        content: JSON.stringify({ error: 'Invalid JSON arguments' }),
+      };
+    }
+    
+    console.log('[Tool] Executing:', name, args);
+    
+    const editorRef = editorRefStore.current;
+    
+    // Mark as writing to doc
+    setIsWritingToDoc(true);
+    setDocuments(prev => prev.map(doc => 
+      doc.id === activeDocId 
+        ? { 
+            ...doc, 
+            chatMessages: doc.chatMessages.map(m => 
+              m.id === assistantId 
+                ? { ...m, isWriting: true }
+                : m
+            ),
+            updatedAt: Date.now() 
+          }
+        : doc
+    ));
+    
+    try {
+      switch (name) {
+        case 'write_content': {
+          const content = args.content as string;
+          if (editorRef) {
+            saveScrollPosition();
+            const htmlContent = textToHtml(content);
+            editorRef.insertContent(htmlContent);
+            restoreScrollPosition();
+          }
+          return {
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ success: true, message: 'Content added to document' }),
+          };
+        }
+        
+        case 'clear_document': {
+          if (editorRef) {
+            saveScrollPosition();
+            editorRef.clearContent();
+            restoreScrollPosition();
+          }
+          return {
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ success: true, message: 'Document cleared' }),
+          };
+        }
+        
+        case 'edit_text': {
+          const findText = args.find_text as string;
+          const replaceWith = args.replace_with as string;
+          
+          if (editorRef) {
+            const editor = editorRef.getEditor();
+            if (editor) {
+              saveScrollPosition();
+              const doc = editor.state.doc;
+              const result = findTextInDocument(doc, findText);
+              
+              if (result) {
+                editor.chain()
+                  .focus()
+                  .setTextSelection({ from: result.from, to: result.to })
+                  .deleteSelection()
+                  .insertContent(replaceWith)
+                  .run();
+                restoreScrollPosition();
+                return {
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify({ success: true, message: 'Text replaced' }),
+                };
+              } else {
+                return {
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify({ success: false, error: 'Text not found in document' }),
+                };
+              }
+            }
+          }
+          return {
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ success: false, error: 'Editor not available' }),
+          };
+        }
+        
+        case 'insert_content': {
+          const content = args.content as string;
+          const position = args.position as 'start' | 'end' | 'before' | 'after';
+          const targetText = args.target_text as string | undefined;
+          
+          if (editorRef) {
+            const editor = editorRef.getEditor();
+            if (editor) {
+              saveScrollPosition();
+              const htmlContent = textToHtml(content);
+              
+              if (position === 'start') {
+                editor.chain().focus().setTextSelection(0).insertContent(htmlContent).run();
+              } else if (position === 'end') {
+                editorRef.insertContent(htmlContent);
+              } else if (position === 'after' && targetText) {
+                const doc = editor.state.doc;
+                const result = findTextInDocument(doc, targetText);
+                if (result) {
+                  editor.chain().focus().setTextSelection(result.to).insertContent(htmlContent).run();
+                } else {
+                  editorRef.insertContent(htmlContent);
+                }
+              } else if (position === 'before' && targetText) {
+                const doc = editor.state.doc;
+                const result = findTextInDocument(doc, targetText);
+                if (result) {
+                  editor.chain().focus().setTextSelection(result.from).insertContent(htmlContent).run();
+                } else {
+                  editor.chain().focus().setTextSelection(0).insertContent(htmlContent).run();
+                }
+              }
+              restoreScrollPosition();
+            }
+          }
+          return {
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ success: true, message: 'Content inserted' }),
+          };
+        }
+        
+        case 'format_text': {
+          const formatType = args.format_type as string;
+          const target = args.target as string;
+          const value = args.value as string | undefined;
+          
+          if (editorRef) {
+            saveScrollPosition();
+            const action: FormatAction = {
+              type: formatType,
+              target: target,
+              value: value,
+            };
+            const success = applyFormatting(editorRef, action);
+            restoreScrollPosition();
+            return {
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({ success, message: success ? 'Formatting applied' : 'Failed to apply formatting' }),
+            };
+          }
+          return {
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ success: false, error: 'Editor not available' }),
+          };
+        }
+        
+        case 'search_web': {
+          const query = args.query as string;
+          
+          setIsSearching(true);
+          try {
+            const results = await searchExa(query);
+            setSearchResults(results);
+            pendingSearchResultsRef.current = results;
+            
+            // Format results for the model
+            const formattedResults = formatSearchResultsForAI(results);
+            
+            return {
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({
+                success: true,
+                results_count: results.length,
+                results: formattedResults,
+                current_date: currentDate,
+                instructions: 'Use these sources for citations. For "Accessed" dates, use today\'s date: ' + currentDate,
+              }),
+            };
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Search failed';
+            return {
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({ success: false, error: message }),
+            };
+          } finally {
+            setIsSearching(false);
+          }
+        }
+        
+        default:
+          return {
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ error: `Unknown tool: ${name}` }),
+          };
+      }
+    } finally {
+      setIsWritingToDoc(false);
+      setDocuments(prev => prev.map(doc => 
+        doc.id === activeDocId 
+          ? { 
+              ...doc, 
+              chatMessages: doc.chatMessages.map(m => 
+                m.id === assistantId 
+                  ? { ...m, isWriting: false }
+                  : m
+              ),
+              updatedAt: Date.now() 
+            }
+          : doc
+      ));
+    }
+  }, [activeDocId, saveScrollPosition, restoreScrollPosition]);
+
+  // Send a chat message with tool calling capability
+  const sendMessage = useCallback(async (
+    content: string, 
+    editorRef: React.RefObject<TiptapEditorHandle | null>, 
+    mode: ChatMode = 'edit', 
+    preSearchResults?: SearchResult[]
+  ) => {
     console.log('[Chat] sendMessage called', { mode, hasPreSearchResults: !!preSearchResults, isLoading, hasActiveDocument: !!activeDocument });
     if (!content.trim() || isLoading || !activeDocument) {
       console.log('[Chat] sendMessage early return', { emptyContent: !content.trim(), isLoading, noActiveDocument: !activeDocument });
@@ -2082,9 +1959,7 @@ export function useDocuments() {
     };
 
     const assistantId = crypto.randomUUID();
-    parseContextRef.current = createParseContext();
     streamingChatRef.current = '';
-    searchInProgressRef.current = false;
     pendingSearchResultsRef.current = null;
 
     // Add user message
@@ -2160,10 +2035,8 @@ ${selectedTemplate.formattingInstructions}
 CRITICAL INSTRUCTIONS:
 1. Follow the EXACT structure shown in the template (order of elements, headings, paragraphs)
 2. Apply the SAME fonts, sizes, and alignments as shown
-3. Use the format tags to match styling EXACTLY
-4. Replace placeholder text with actual content, but keep the formatting identical
-5. If the template has indentation, apply it using <format type="textIndent" target="PARAGRAPH" value="0.5in"/>
-6. If the template centers titles, use <format type="align" target="TITLE" value="center"/>`;
+3. Use the format_text tool to match styling EXACTLY
+4. Replace placeholder text with actual content, but keep the formatting identical`;
     }
     
     const systemMessage: ChatMessage = {
@@ -2186,347 +2059,17 @@ CRITICAL INSTRUCTIONS:
         : doc
     ));
 
-    let editTargetRemoved = false;
-
     // Create abort controller for this request
     abortControllerRef.current = new AbortController();
 
-    // Helper function to make follow-up call with search results
-    // This is called from both onComplete and onError to handle the race condition
-    // where search may complete before or after the stream ends
-    const makeSearchFollowUpCall = async () => {
-      console.log('[FollowUp] makeSearchFollowUpCall called', { hasPendingResults: !!pendingSearchResultsRef.current });
-      if (!pendingSearchResultsRef.current) {
-        console.log('[FollowUp] No pending search results, returning false');
-        return false;
-      }
-      
-      console.log('[FollowUp] Making follow-up call with', pendingSearchResultsRef.current.length, 'search results');
-      const searchResults = pendingSearchResultsRef.current;
-      pendingSearchResultsRef.current = null; // Clear pending results
-      
-      // Finalize the first message (search acknowledgment)
-      const firstMessageContent = streamingChatRef.current;
-      setDocuments(prev => prev.map(doc => 
-        doc.id === activeDocId 
-          ? { 
-              ...doc, 
-              chatMessages: doc.chatMessages.map(m => 
-                m.id === assistantId 
-                  ? { ...m, content: firstMessageContent, isWriting: false }
-                  : m
-              ),
-              updatedAt: Date.now() 
-            }
-          : doc
-      ));
-      
-      // Create a new assistant message for the follow-up response
-      const followUpAssistantId = crypto.randomUUID();
-      streamingChatRef.current = ''; // Reset for the new message
-      parseContextRef.current = createParseContext(); // Reset parse context for new message
-      
-      const followUpAssistantMessage: DocChatMessage = {
-        id: followUpAssistantId,
-        role: 'assistant',
-        content: '',
-        timestamp: Date.now(),
-        isWriting: false,
-      };
-      
-      // Add the new message placeholder
-      setDocuments(prev => prev.map(doc => 
-        doc.id === activeDocId 
-          ? { ...doc, chatMessages: [...doc.chatMessages, followUpAssistantMessage], updatedAt: Date.now() }
-          : doc
-      ));
-      
-      // Format search results for context
-      const formattedResults = formatSearchResultsForAI(searchResults);
-      
-      // Build follow-up messages
-      const followUpHistory: ChatMessage[] = [
-        ...chatHistory,
-        { 
-          role: 'assistant' as const, 
-          content: firstMessageContent 
-        },
-        { 
-          role: 'user' as const, 
-          content: `Here are the research results I found:\n\n${formattedResults}\n\nNow please write the content using these sources. Include proper citations with URLs where appropriate.` 
-        }
-      ];
-      
-      // Create new abort controller for follow-up
-      abortControllerRef.current = new AbortController();
-      
-      // Create a new token handler for the follow-up that uses the new assistant ID
-      const followUpHandleToken = mode === 'chat' 
-        ? (token: string) => {
-            streamingChatRef.current += token;
-            setDocuments(prev => prev.map(doc => 
-              doc.id === activeDocId 
-                ? { 
-                    ...doc, 
-                    chatMessages: doc.chatMessages.map(m => 
-                      m.id === followUpAssistantId 
-                        ? { ...m, content: streamingChatRef.current }
-                        : m
-                    ),
-                    updatedAt: Date.now() 
-                  }
-                : doc
-            ));
-          }
-        : (token: string) => {
-            // Edit mode: parse for document editing tags
-            parseContextRef.current = parseToken(parseContextRef.current, token, {
-              onChatToken: (char) => {
-                streamingChatRef.current += char;
-                setDocuments(prev => prev.map(doc => 
-                  doc.id === activeDocId 
-                    ? { 
-                        ...doc, 
-                        chatMessages: doc.chatMessages.map(m => 
-                          m.id === followUpAssistantId 
-                            ? { ...m, content: streamingChatRef.current }
-                            : m
-                        ),
-                        updatedAt: Date.now() 
-                      }
-                    : doc
-                ));
-              },
-              onWriteStart: () => {
-                saveScrollPosition();
-                setIsWritingToDoc(true);
-                setDocuments(prev => prev.map(doc => 
-                  doc.id === activeDocId 
-                    ? { 
-                        ...doc, 
-                        chatMessages: doc.chatMessages.map(m => 
-                          m.id === followUpAssistantId 
-                            ? { ...m, isWriting: true }
-                            : m
-                        ),
-                        updatedAt: Date.now() 
-                      }
-                    : doc
-                ));
-              },
-              onWriteComplete: (writeContent) => {
-                if (editorRefStore.current) {
-                  const htmlContent = textToHtml(writeContent);
-                  editorRefStore.current.insertContent(htmlContent);
-                  restoreScrollPosition();
-                }
-              },
-              onEditStart: (findText) => {
-                saveScrollPosition();
-                setIsWritingToDoc(true);
-                setDocuments(prev => prev.map(doc => 
-                  doc.id === activeDocId 
-                    ? { 
-                        ...doc, 
-                        chatMessages: doc.chatMessages.map(m => 
-                          m.id === followUpAssistantId 
-                            ? { ...m, isWriting: true }
-                            : m
-                        ),
-                        updatedAt: Date.now() 
-                      }
-                    : doc
-                ));
-                
-                if (editorRefStore.current) {
-                  const editor = editorRefStore.current.getEditor();
-                  if (editor) {
-                    const doc = editor.state.doc;
-                    const result = findTextInDocument(doc, findText);
-                    
-                    if (result) {
-                      editor.chain().focus().setTextSelection({ from: result.from, to: result.to }).deleteSelection().run();
-                    }
-                  }
-                }
-              },
-              onEditComplete: (editContent) => {
-                if (editorRefStore.current) {
-                  editorRefStore.current.insertContent(editContent);
-                  restoreScrollPosition();
-                }
-              },
-              onFormat: (action) => {
-                saveScrollPosition();
-                setIsWritingToDoc(true);
-                setDocuments(prev => prev.map(doc => 
-                  doc.id === activeDocId 
-                    ? { 
-                        ...doc, 
-                        chatMessages: doc.chatMessages.map(m => 
-                          m.id === followUpAssistantId 
-                            ? { ...m, isWriting: true }
-                            : m
-                        ),
-                        updatedAt: Date.now() 
-                      }
-                    : doc
-                ));
-                
-                if (editorRefStore.current) {
-                  applyFormatting(editorRefStore.current, action);
-                  restoreScrollPosition();
-                }
-              },
-              onClear: () => {
-                saveScrollPosition();
-                setIsWritingToDoc(true);
-                setDocuments(prev => prev.map(doc => 
-                  doc.id === activeDocId 
-                    ? { 
-                        ...doc, 
-                        chatMessages: doc.chatMessages.map(m => 
-                          m.id === followUpAssistantId 
-                            ? { ...m, isWriting: true }
-                            : m
-                        ),
-                        updatedAt: Date.now() 
-                      }
-                    : doc
-                ));
-                
-                if (editorRefStore.current) {
-                  editorRefStore.current.clearContent();
-                  restoreScrollPosition();
-                }
-              },
-              onInsertStart: () => {
-                saveScrollPosition();
-                setIsWritingToDoc(true);
-                setDocuments(prev => prev.map(doc => 
-                  doc.id === activeDocId 
-                    ? { 
-                        ...doc, 
-                        chatMessages: doc.chatMessages.map(m => 
-                          m.id === followUpAssistantId 
-                            ? { ...m, isWriting: true }
-                            : m
-                        ),
-                        updatedAt: Date.now() 
-                      }
-                    : doc
-                ));
-              },
-              onInsertComplete: (insertContent, action) => {
-                if (editorRefStore.current) {
-                  const editor = editorRefStore.current.getEditor();
-                  if (editor) {
-                    const htmlContent = textToHtml(insertContent);
-                    
-                    if (action.position === 'start') {
-                      editor.chain().focus().setTextSelection(0).insertContent(htmlContent).run();
-                    } else if (action.position === 'end') {
-                      editorRefStore.current.insertContent(htmlContent);
-                    } else if (action.position === 'after' && action.target) {
-                      const doc = editor.state.doc;
-                      const result = findTextInDocument(doc, action.target);
-                      if (result) {
-                        editor.chain().focus().setTextSelection(result.to).insertContent(htmlContent).run();
-                      } else {
-                        editorRefStore.current.insertContent(htmlContent);
-                      }
-                    } else if (action.position === 'before' && action.target) {
-                      const doc = editor.state.doc;
-                      const result = findTextInDocument(doc, action.target);
-                      if (result) {
-                        editor.chain().focus().setTextSelection(result.from).insertContent(htmlContent).run();
-                      } else {
-                        editor.chain().focus().setTextSelection(0).insertContent(htmlContent).run();
-                      }
-                    }
-                    restoreScrollPosition();
-                  }
-                }
-              },
-              onSearch: () => {
-                // Ignore nested search requests in follow-up
-                console.log('[Search] Ignoring nested search in follow-up call');
-              },
-            });
-          };
-      
-      // Make follow-up call
-      console.log('[FollowUp] Starting follow-up generation with', searchResults.length, 'sources');
-      await sendMessageStream([systemMessage, ...followUpHistory], {
-        onToken: followUpHandleToken,
-        onComplete: () => {
-          console.log('[FollowUp] onComplete called');
-          try {
-            console.log('[FollowUp] Saving document content');
-            try {
-              if (editorRefStore.current) {
-                const finalContent = editorRefStore.current.getHTML();
-                setDocuments(prev => prev.map(doc => 
-                  doc.id === activeDocId 
-                    ? { ...doc, content: finalContent, updatedAt: Date.now() }
-                    : doc
-                ));
-              }
-            } catch (editorErr) {
-              console.error('[FollowUp] Error saving document content:', editorErr);
-            }
-            
-            console.log('[FollowUp] Marking message complete');
-            setDocuments(prev => prev.map(doc => 
-              doc.id === activeDocId 
-                ? { 
-                    ...doc, 
-                    chatMessages: doc.chatMessages.map(m => 
-                      m.id === followUpAssistantId 
-                        ? { ...m, content: streamingChatRef.current, isWriting: false }
-                        : m
-                    ),
-                    updatedAt: Date.now() 
-                  }
-                : doc
-            ));
-          } catch (err) {
-            console.error('[FollowUp] Error in onComplete handler:', err);
-          } finally {
-            console.log('[FollowUp] onComplete finally - setting isLoading=false');
-            setIsLoading(false);
-            setIsWritingToDoc(false);
-            abortControllerRef.current = null;
-          }
-        },
-        onError: (followUpErr) => {
-          console.log('[FollowUp] onError called', { name: followUpErr.name, message: followUpErr.message });
-          try {
-            if (followUpErr.name !== 'AbortError') {
-              console.log('[FollowUp] Setting error:', followUpErr.message);
-              setError(followUpErr.message);
-            } else {
-              console.log('[FollowUp] Abort error - not setting error state');
-            }
-          } catch (err) {
-            console.error('[FollowUp] Error in onError handler:', err);
-          } finally {
-            console.log('[FollowUp] onError finally - setting isLoading=false');
-            setIsLoading(false);
-            setIsWritingToDoc(false);
-            abortControllerRef.current = null;
-          }
-        },
-      }, selectedModel, abortControllerRef.current.signal);
-      
-      console.log('[FollowUp] sendMessageStream returned');
-      return true;
-    };
+    // Determine which tools to use based on mode
+    const tools = mode === 'edit' ? DOCUMENT_TOOLS : undefined;
 
-    // Handler for streaming tokens based on mode
-    const handleToken = mode === 'chat' 
-      ? (token: string) => {
-          // Chat mode: just stream the response directly
+    console.log('[Stream] Starting stream with model:', selectedModel, 'mode:', mode, 'tools:', tools?.length || 0);
+    await sendMessageStream(
+      [systemMessage, ...chatHistory],
+      {
+        onToken: (token: string) => {
           streamingChatRef.current += token;
           setDocuments(prev => prev.map(doc => 
             doc.id === activeDocId 
@@ -2541,410 +2084,113 @@ CRITICAL INSTRUCTIONS:
                 }
               : doc
           ));
-        }
-      : (token: string) => {
-          // Edit mode: parse for document editing tags
-          parseContextRef.current = parseToken(parseContextRef.current, token, {
-            onChatToken: (char) => {
-              streamingChatRef.current += char;
-              setDocuments(prev => prev.map(doc => 
-                doc.id === activeDocId 
-                  ? { 
-                      ...doc, 
-                      chatMessages: doc.chatMessages.map(m => 
-                        m.id === assistantId 
-                          ? { ...m, content: streamingChatRef.current }
-                          : m
-                      ),
-                      updatedAt: Date.now() 
-                    }
-                  : doc
-              ));
-            },
-            onWriteStart: () => {
-              console.log('[Action] <write> tag started - AI is writing to document');
-              saveScrollPosition();
-              setIsWritingToDoc(true);
-              setDocuments(prev => prev.map(doc => 
-                doc.id === activeDocId 
-                  ? { 
-                      ...doc, 
-                      chatMessages: doc.chatMessages.map(m => 
-                        m.id === assistantId 
-                          ? { ...m, isWriting: true }
-                          : m
-                      ),
-                      updatedAt: Date.now() 
-                    }
-                  : doc
-              ));
-            },
-            onWriteComplete: (writeContent) => {
-              console.log('[Action] </write> tag completed - content length:', writeContent.length);
-              if (editorRefStore.current) {
-                // Convert text to HTML and insert it all at once
-                const htmlContent = textToHtml(writeContent);
-                editorRefStore.current.insertContent(htmlContent);
-                restoreScrollPosition();
-              }
-            },
-            onEditStart: (findText) => {
-              console.log('[Action] <edit> tag started - finding text:', findText.substring(0, 50) + '...');
-              saveScrollPosition();
-              setIsWritingToDoc(true);
-              setDocuments(prev => prev.map(doc => 
-                doc.id === activeDocId 
-                  ? { 
-                      ...doc, 
-                      chatMessages: doc.chatMessages.map(m => 
-                        m.id === assistantId 
-                          ? { ...m, isWriting: true }
-                          : m
-                      ),
-                      updatedAt: Date.now() 
-                    }
-                  : doc
-              ));
-              
-              // Find and delete the text using Tiptap
-              if (editorRefStore.current && !editTargetRemoved) {
-                const editor = editorRefStore.current.getEditor();
-                if (editor) {
-                  const doc = editor.state.doc;
-                  const result = findTextInDocument(doc, findText);
-                  
-                  if (result) {
-                    console.log('[Action] Found text to edit at positions:', result.from, '-', result.to);
-                    editor.chain().focus().setTextSelection({ from: result.from, to: result.to }).deleteSelection().run();
-                  } else {
-                    console.log('[Action] Could not find text to edit');
-                  }
-                }
-                editTargetRemoved = true;
-              }
-            },
-            onEditComplete: (editContent) => {
-              console.log('[Action] </edit> tag completed - replacement length:', editContent.length);
-              if (editorRefStore.current) {
-                // Insert the replacement content at the edit position
-                editorRefStore.current.insertContent(editContent);
-                restoreScrollPosition();
-              }
-            },
-            onFormat: (action) => {
-              console.log('[Action] <format> tag - type:', action.type, 'target:', action.target?.substring(0, 30), 'value:', action.value);
-              saveScrollPosition();
-              setIsWritingToDoc(true);
-              setDocuments(prev => prev.map(doc => 
-                doc.id === activeDocId 
-                  ? { 
-                      ...doc, 
-                      chatMessages: doc.chatMessages.map(m => 
-                        m.id === assistantId 
-                          ? { ...m, isWriting: true }
-                          : m
-                      ),
-                      updatedAt: Date.now() 
-                    }
-                  : doc
-              ));
-              
-              if (editorRefStore.current) {
-                applyFormatting(editorRefStore.current, action);
-                restoreScrollPosition();
-              }
-            },
-            onClear: () => {
-              console.log('[Action] <clear/> tag - clearing document');
-              saveScrollPosition();
-              setIsWritingToDoc(true);
-              setDocuments(prev => prev.map(doc => 
-                doc.id === activeDocId 
-                  ? { 
-                      ...doc, 
-                      chatMessages: doc.chatMessages.map(m => 
-                        m.id === assistantId 
-                          ? { ...m, isWriting: true }
-                          : m
-                      ),
-                      updatedAt: Date.now() 
-                    }
-                  : doc
-              ));
-              
-              if (editorRefStore.current) {
-                editorRefStore.current.clearContent();
-                restoreScrollPosition();
-              }
-            },
-            onInsertStart: (action) => {
-              console.log('[Action] <insert> tag started - position:', action.position, 'target:', action.target);
-              saveScrollPosition();
-              setIsWritingToDoc(true);
-              setDocuments(prev => prev.map(doc => 
-                doc.id === activeDocId 
-                  ? { 
-                      ...doc, 
-                      chatMessages: doc.chatMessages.map(m => 
-                        m.id === assistantId 
-                          ? { ...m, isWriting: true }
-                          : m
-                      ),
-                      updatedAt: Date.now() 
-                    }
-                  : doc
-              ));
-            },
-            onInsertComplete: (insertContent, action) => {
-              console.log('[Action] </insert> tag completed - position:', action.position, 'content length:', insertContent.length);
-              if (editorRefStore.current) {
-                const editor = editorRefStore.current.getEditor();
-                if (editor) {
-                  const htmlContent = textToHtml(insertContent);
-                  
-                  if (action.position === 'start') {
-                    // Insert at the very beginning of the document
-                    editor.chain().focus().setTextSelection(0).insertContent(htmlContent).run();
-                  } else if (action.position === 'end') {
-                    // Insert at the end (same as write)
-                    editorRefStore.current.insertContent(htmlContent);
-                  } else if (action.position === 'after' && action.target) {
-                    // Find the target text and insert after it
-                    const doc = editor.state.doc;
-                    const result = findTextInDocument(doc, action.target);
-                    if (result) {
-                      editor.chain().focus().setTextSelection(result.to).insertContent(htmlContent).run();
-                    } else {
-                      // Fallback: insert at end if target not found
-                      editorRefStore.current.insertContent(htmlContent);
-                    }
-                  } else if (action.position === 'before' && action.target) {
-                    // Find the target text and insert before it
-                    const doc = editor.state.doc;
-                    const result = findTextInDocument(doc, action.target);
-                    if (result) {
-                      editor.chain().focus().setTextSelection(result.from).insertContent(htmlContent).run();
-                    } else {
-                      // Fallback: insert at start if target not found
-                      editor.chain().focus().setTextSelection(0).insertContent(htmlContent).run();
-                    }
-                  }
-                  restoreScrollPosition();
-                }
-              }
-            },
-            onSearch: async (query) => {
-              // Prevent duplicate search calls
-              if (searchInProgressRef.current) {
-                console.log('[Search] Already in progress, skipping duplicate call');
-                return;
-              }
-              
-              console.log('[Search] AI requested search for:', query);
-              searchInProgressRef.current = true;
-              setIsSearching(true);
-              
-              // Update chat to show searching
-              const searchingMsg = ` Searching for sources...`;
-              streamingChatRef.current += searchingMsg;
-              setDocuments(prev => prev.map(doc => 
-                doc.id === activeDocId 
-                  ? { 
-                      ...doc, 
-                      chatMessages: doc.chatMessages.map(m => 
-                        m.id === assistantId 
-                          ? { ...m, content: streamingChatRef.current }
-                          : m
-                      ),
-                      updatedAt: Date.now() 
-                    }
-                  : doc
-              ));
-              
-              try {
-                console.log('[Search] Calling Exa API...');
-                const results = await searchExa(query);
-                console.log('[Search] Got results:', results.length, 'sources');
-                setSearchResults(results);
-                
-                // Store results for the follow-up call
-                pendingSearchResultsRef.current = results;
-                
-                // Update chat to show search completed
-                const resultSummary = results.length > 0 
-                  ? ` Found ${results.length} sources. Now writing with citations...`
-                  : ' No results found.';
-                streamingChatRef.current = streamingChatRef.current.replace(searchingMsg, resultSummary);
-                setDocuments(prev => prev.map(doc => 
-                  doc.id === activeDocId 
-                    ? { 
-                        ...doc, 
-                        chatMessages: doc.chatMessages.map(m => 
-                          m.id === assistantId 
-                            ? { ...m, content: streamingChatRef.current }
-                            : m
-                        ),
-                        updatedAt: Date.now() 
-                      }
-                    : doc
-                ));
-                
-                // Abort current stream - we'll make a follow-up call with search results
-                console.log('[Search] Aborting current stream to make follow-up call with results');
-                if (abortControllerRef.current) {
-                  abortControllerRef.current.abort();
-                }
-              } catch (err) {
-                console.error('[Search] Failed:', err);
-                streamingChatRef.current = streamingChatRef.current.replace(searchingMsg, ' Search failed.');
-                setDocuments(prev => prev.map(doc => 
-                  doc.id === activeDocId 
-                    ? { 
-                        ...doc, 
-                        chatMessages: doc.chatMessages.map(m => 
-                          m.id === assistantId 
-                            ? { ...m, content: streamingChatRef.current }
-                            : m
-                        ),
-                        updatedAt: Date.now() 
-                      }
-                    : doc
-                ));
-              } finally {
-                setIsSearching(false);
-                searchInProgressRef.current = false;
-              }
-            },
-          });
-        };
-
-    console.log('[Stream] Starting stream with model:', selectedModel);
-    await sendMessageStream([systemMessage, ...chatHistory], {
-      onToken: handleToken,
-      onComplete: async () => {
-        console.log('[Stream] onComplete called', { 
-          searchInProgress: searchInProgressRef.current, 
-          hasPendingSearchResults: !!pendingSearchResultsRef.current,
-          chatContentLength: streamingChatRef.current.length 
-        });
-        try {
-          // Check if a search is still in progress - wait for it to complete
-          // This handles the race condition where the stream finishes before search completes
-          if (searchInProgressRef.current) {
-            console.log('[Stream] Waiting for search to complete...');
-            // Wait for search to complete (check every 100ms, max 30 seconds)
-            let waited = 0;
-            while (searchInProgressRef.current && waited < 30000) {
-              await new Promise(resolve => setTimeout(resolve, 100));
-              waited += 100;
-            }
-            console.log('[Stream] Done waiting for search, waited:', waited, 'ms');
+        },
+        onToolCalls: async (toolCalls: ToolCall[]) => {
+          console.log('[Stream] Tool calls received:', toolCalls.length);
+          
+          // Execute each tool call and collect results
+          const toolResults: ChatMessage[] = [];
+          for (const toolCall of toolCalls) {
+            const result = await executeToolCall(toolCall, assistantId, currentDate);
+            toolResults.push(result);
           }
           
-          // Check if we have pending search results
-          if (pendingSearchResultsRef.current) {
-            console.log('[Stream] Has pending search results, making follow-up call');
-            await makeSearchFollowUpCall();
-            console.log('[Stream] Follow-up call completed');
-            return;
-          }
-          
-          // Save final document content
-          console.log('[Stream] Saving final document content');
+          return toolResults;
+        },
+        onComplete: async () => {
+          console.log('[Stream] onComplete called');
           try {
-            if (editorRefStore.current) {
-              const finalContent = editorRefStore.current.getHTML();
-              setDocuments(prev => prev.map(doc => 
-                doc.id === activeDocId 
-                  ? { ...doc, content: finalContent, updatedAt: Date.now() }
-                  : doc
-              ));
+            // Save final document content
+            console.log('[Stream] Saving final document content');
+            try {
+              if (editorRefStore.current) {
+                const finalContent = editorRefStore.current.getHTML();
+                setDocuments(prev => prev.map(doc => 
+                  doc.id === activeDocId 
+                    ? { ...doc, content: finalContent, updatedAt: Date.now() }
+                    : doc
+                ));
+              }
+            } catch (editorErr) {
+              console.error('[Stream] Error saving document content:', editorErr);
             }
-          } catch (editorErr) {
-            console.error('[Stream] Error saving document content:', editorErr);
-          }
-          
-          // Mark writing complete
-          console.log('[Stream] Marking writing complete');
-          setDocuments(prev => prev.map(doc => 
-            doc.id === activeDocId 
-              ? { 
-                  ...doc, 
-                  chatMessages: doc.chatMessages.map(m => 
-                    m.id === assistantId 
-                      ? { ...m, content: streamingChatRef.current, isWriting: false }
-                      : m
-                  ),
-                  updatedAt: Date.now() 
-                }
-              : doc
-          ));
-        } catch (err) {
-          console.error('[Stream] Error in onComplete handler:', err);
-        } finally {
-          console.log('[Stream] onComplete finally - setting isLoading=false');
-          setIsLoading(false);
-          setIsWritingToDoc(false);
-          abortControllerRef.current = null;
-        }
-      },
-      onError: async (err) => {
-        console.log('[Stream] onError called', { 
-          errorName: err.name, 
-          errorMessage: err.message,
-          hasPendingSearchResults: !!pendingSearchResultsRef.current 
-        });
-        try {
-          // Check if we aborted due to a search - if so, make follow-up call with results
-          if (err.name === 'AbortError' && pendingSearchResultsRef.current) {
-            console.log('[Stream] AbortError with pending search results - making follow-up call');
-            await makeSearchFollowUpCall();
-            console.log('[Stream] Follow-up call completed after abort');
-            return; // Don't run the normal abort handling
-          }
-          
-          // Don't show error or remove message if it was aborted by user
-          if (err.name === 'AbortError') {
-            console.log('[Stream] User aborted - keeping partial response');
-            // Keep the partial response, just mark as complete
+            
+            // Mark writing complete
+            console.log('[Stream] Marking writing complete');
             setDocuments(prev => prev.map(doc => 
               doc.id === activeDocId 
                 ? { 
                     ...doc, 
                     chatMessages: doc.chatMessages.map(m => 
                       m.id === assistantId 
-                        ? { ...m, content: streamingChatRef.current || '(stopped)', isWriting: false }
+                        ? { ...m, content: streamingChatRef.current, isWriting: false }
                         : m
                     ),
                     updatedAt: Date.now() 
                   }
                 : doc
             ));
-          } else {
-            console.log('[Stream] Actual error - removing message and showing error');
-            setError(err.message);
-            setDocuments(prev => prev.map(doc => 
-              doc.id === activeDocId 
-                ? { 
-                    ...doc, 
-                    chatMessages: doc.chatMessages.filter(m => m.id !== assistantId),
-                    updatedAt: Date.now() 
-                  }
-                : doc
-            ));
+          } catch (err) {
+            console.error('[Stream] Error in onComplete handler:', err);
+          } finally {
+            console.log('[Stream] onComplete finally - setting isLoading=false');
+            setIsLoading(false);
+            setIsWritingToDoc(false);
+            abortControllerRef.current = null;
           }
-        } catch (handlerErr) {
-          console.error('[Stream] Error in onError handler:', handlerErr);
-        } finally {
-          console.log('[Stream] onError finally - setting isLoading=false');
-          setIsLoading(false);
-          setIsWritingToDoc(false);
-          abortControllerRef.current = null;
-        }
+        },
+        onError: async (err) => {
+          console.log('[Stream] onError called', { 
+            errorName: err.name, 
+            errorMessage: err.message,
+          });
+          try {
+            // Don't show error or remove message if it was aborted by user
+            if (err.name === 'AbortError') {
+              console.log('[Stream] User aborted - keeping partial response');
+              // Keep the partial response, just mark as complete
+              setDocuments(prev => prev.map(doc => 
+                doc.id === activeDocId 
+                  ? { 
+                      ...doc, 
+                      chatMessages: doc.chatMessages.map(m => 
+                        m.id === assistantId 
+                          ? { ...m, content: streamingChatRef.current || '(stopped)', isWriting: false }
+                          : m
+                      ),
+                      updatedAt: Date.now() 
+                    }
+                  : doc
+              ));
+            } else {
+              console.log('[Stream] Actual error - removing message and showing error');
+              setError(err.message);
+              setDocuments(prev => prev.map(doc => 
+                doc.id === activeDocId 
+                  ? { 
+                      ...doc, 
+                      chatMessages: doc.chatMessages.filter(m => m.id !== assistantId),
+                      updatedAt: Date.now() 
+                    }
+                  : doc
+              ));
+            }
+          } catch (handlerErr) {
+            console.error('[Stream] Error in onError handler:', handlerErr);
+          } finally {
+            console.log('[Stream] onError finally - setting isLoading=false');
+            setIsLoading(false);
+            setIsWritingToDoc(false);
+            abortControllerRef.current = null;
+          }
+        },
       },
-    }, selectedModel, abortControllerRef.current.signal);
+      selectedModel,
+      abortControllerRef.current.signal,
+      tools
+    );
     console.log('[Stream] sendMessageStream returned - isLoading should now be false');
-  }, [activeDocument, activeDocId, isLoading, selectedModel, personaSettings, selectedTemplate, generateTitleFromMessage]);
+  }, [activeDocument, activeDocId, isLoading, selectedModel, personaSettings, selectedTemplate, generateTitleFromMessage, executeToolCall]);
 
   const clearChat = useCallback(() => {
     setDocuments(prev => prev.map(doc => 

@@ -23,8 +23,40 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
 ];
 
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string | null;
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
+  name?: string;
+}
+
+export interface ToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    strict?: boolean; // Enable strict schema validation
+    parameters: {
+      type: 'object';
+      properties: Record<string, {
+        type: string;
+        description?: string;
+        enum?: string[];
+        items?: { type: string };
+      }>;
+      required?: string[];
+      additionalProperties?: boolean; // Set to false for strict mode
+    };
+  };
+}
+
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
 }
 
 export interface StreamMetrics {
@@ -36,8 +68,16 @@ export interface StreamMetrics {
 
 export interface StreamCallbacks {
   onToken: (token: string) => void;
+  onToolCalls?: (toolCalls: ToolCall[]) => Promise<ChatMessage[]>; // Returns tool results
   onComplete: (metrics: StreamMetrics) => void | Promise<void>;
   onError: (error: Error) => void | Promise<void>;
+}
+
+export interface SendMessageOptions {
+  model?: string;
+  tools?: ToolDefinition[];
+  tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
+  abortSignal?: AbortSignal;
 }
 
 // Timeout for stream reads (60 seconds without data = timeout)
@@ -57,30 +97,79 @@ function createReadTimeout(timeoutMs: number): { promise: Promise<never>; clear:
   };
 }
 
+// Helper to accumulate tool call deltas during streaming
+interface ToolCallDelta {
+  index: number;
+  id?: string;
+  type?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+}
+
+function accumulateToolCallDelta(
+  accumulated: Map<number, ToolCall>,
+  delta: ToolCallDelta
+): void {
+  const existing = accumulated.get(delta.index);
+  
+  if (!existing) {
+    // New tool call
+    accumulated.set(delta.index, {
+      id: delta.id || '',
+      type: 'function',
+      function: {
+        name: delta.function?.name || '',
+        arguments: delta.function?.arguments || '',
+      },
+    });
+  } else {
+    // Accumulate into existing
+    if (delta.id) existing.id = delta.id;
+    if (delta.function?.name) existing.function.name += delta.function.name;
+    if (delta.function?.arguments) existing.function.arguments += delta.function.arguments;
+  }
+}
+
 export async function sendMessageStream(
   messages: ChatMessage[],
   callbacks: StreamCallbacks,
   model: string = DEFAULT_MODEL,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  tools?: ToolDefinition[],
+  tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } }
 ): Promise<void> {
-  console.log('[API] sendMessageStream called', { model, messageCount: messages.length });
+  console.log('[API] sendMessageStream called', { model, messageCount: messages.length, hasTools: !!tools });
   const startTime = performance.now();
   let firstTokenTime: number | null = null;
   let tokenCount = 0;
 
   try {
     console.log('[API] Fetching from', API_URL);
+    
+    // Build request body
+    const requestBody: Record<string, unknown> = {
+      model,
+      messages,
+      max_tokens: 4096,
+      stream: true
+    };
+    
+    // Add tools if provided
+    if (tools && tools.length > 0) {
+      requestBody.tools = tools;
+      if (tool_choice) {
+        requestBody.tool_choice = tool_choice;
+      }
+    }
+    
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        max_tokens: 4096,
-        stream: true
-      }),
+      body: JSON.stringify(requestBody),
       signal: abortSignal
     });
 
@@ -102,6 +191,10 @@ export async function sendMessageStream(
     const decoder = new TextDecoder();
     let buffer = '';
     let readCount = 0;
+    
+    // Track accumulated tool calls
+    const accumulatedToolCalls = new Map<number, ToolCall>();
+    let finishReason: string | null = null;
 
     while (true) {
       // Add timeout to stream reads to prevent infinite hangs
@@ -139,14 +232,32 @@ export async function sendMessageStream(
 
           try {
             const parsed = JSON.parse(data);
-            const content = parsed.choices?.[0]?.delta?.content;
-            if (content) {
-              if (firstTokenTime === null) {
-                firstTokenTime = performance.now();
-                console.log('[API] First token received after', Math.round(firstTokenTime - startTime), 'ms');
+            const choice = parsed.choices?.[0];
+            
+            if (choice) {
+              // Handle content delta
+              const content = choice.delta?.content;
+              if (content) {
+                if (firstTokenTime === null) {
+                  firstTokenTime = performance.now();
+                  console.log('[API] First token received after', Math.round(firstTokenTime - startTime), 'ms');
+                }
+                tokenCount++;
+                callbacks.onToken(content);
               }
-              tokenCount++;
-              callbacks.onToken(content);
+              
+              // Handle tool call deltas
+              const toolCallDeltas = choice.delta?.tool_calls;
+              if (toolCallDeltas && Array.isArray(toolCallDeltas)) {
+                for (const delta of toolCallDeltas) {
+                  accumulateToolCallDelta(accumulatedToolCalls, delta);
+                }
+              }
+              
+              // Track finish reason
+              if (choice.finish_reason) {
+                finishReason = choice.finish_reason;
+              }
             }
           } catch {
             // Skip malformed JSON
@@ -161,8 +272,37 @@ export async function sendMessageStream(
     const generationTime = endTime - (firstTokenTime || startTime);
     const tps = generationTime > 0 ? (tokenCount / generationTime) * 1000 : 0;
 
+    // Handle tool calls if present
+    if (finishReason === 'tool_calls' && accumulatedToolCalls.size > 0 && callbacks.onToolCalls) {
+      const toolCalls = Array.from(accumulatedToolCalls.values());
+      console.log('[API] Tool calls detected:', toolCalls.length, 'calls');
+      
+      // Execute tool calls and get results
+      const toolResults = await callbacks.onToolCalls(toolCalls);
+      
+      // Build new messages array with assistant's tool call message and tool results
+      const assistantMessage: ChatMessage = {
+        role: 'assistant',
+        content: null,
+        tool_calls: toolCalls,
+      };
+      
+      const newMessages = [...messages, assistantMessage, ...toolResults];
+      
+      // Make follow-up call with tool results
+      console.log('[API] Making follow-up call with tool results');
+      await sendMessageStream(
+        newMessages,
+        callbacks,
+        model,
+        abortSignal,
+        tools,
+        tool_choice
+      );
+      return; // The recursive call will handle completion
+    }
+
     console.log('[API] Stream complete, calling onComplete', { tokenCount, totalTime: Math.round(totalTime) });
-    // Await onComplete in case it's async (handles search follow-up calls)
     await Promise.resolve(callbacks.onComplete({
       ttft: Math.round(ttft),
       tps: Math.round(tps * 10) / 10,
@@ -173,7 +313,6 @@ export async function sendMessageStream(
   } catch (err) {
     const error = err instanceof Error ? err : new Error('Unknown error');
     console.log('[API] Error caught, calling onError', { name: error.name, message: error.message });
-    // Await onError in case it's async
     await Promise.resolve(callbacks.onError(error));
     console.log('[API] onError finished');
   }
