@@ -1327,14 +1327,25 @@ You have the following tools available:
 
 ## Response Guidelines
 
-1. **ACKNOWLEDGE ONCE AT THE START**: Write ONE brief acknowledgment before your first tool call. Examples:
-   - "I'll write an essay on climate change for you."
-   - "Let me fix that formatting."
-   - "Rewriting the introduction now."
-   IMPORTANT: Do NOT repeat or rephrase this acknowledgment after tool calls complete. Just continue working or give a final summary.
+1. **BEFORE TOOLS - Brief future-tense acknowledgment**: Write ONE brief statement about what you're going to do. Examples:
+   - "I'll write an essay on climate change"
+   - "I'll fix the indents"
+   - "I'll make that bold"
+   Keep it simple and action-focused.
 
-2. ALWAYS use read_document first when you need to edit
-3. After completing significant tasks, provide a brief summary of what you did (but don't repeat your initial acknowledgment)
+2. **AFTER TOOLS - Brief past-tense confirmation**: After tools execute successfully, give a SHORT confirmation. Do NOT repeat details you already mentioned. Examples:
+   - "Done" or "Finished"
+   - "Fixed the indents" (if you didn't give details before)
+   - "Essay complete" (if you didn't explain before)
+
+   NEVER say the same information twice. If you described it before tools, just say "Done" after.
+
+   ONLY provide detailed after-summary if:
+   - An error occurred that needs explanation
+   - You discovered new information during execution
+   - The user asks a follow-up question
+
+3. ALWAYS use read_document first when you need to edit
 4. Be brief in your chat responses. Get to the point.
 5. When editing the document, use the tools - don't just describe what you would do.
 6. For rewrites, ALWAYS clear first then write. Never append a new version below the old one.
@@ -1478,14 +1489,25 @@ You have the following tools available:
 
 ## Response Guidelines
 
-1. **ACKNOWLEDGE ONCE AT THE START**: Write ONE brief acknowledgment before your first tool call. Examples:
-   - "I'll write an essay on climate change for you."
-   - "Let me fix that formatting."
-   - "Rewriting the introduction now."
-   IMPORTANT: Do NOT repeat or rephrase this acknowledgment after tool calls complete. Just continue working or give a final summary.
+1. **BEFORE TOOLS - Brief future-tense acknowledgment**: Write ONE brief statement about what you're going to do. Examples:
+   - "I'll write an essay on climate change"
+   - "I'll fix the indents"
+   - "I'll make that bold"
+   Keep it simple and action-focused.
 
-2. ALWAYS use read_document first when you need to edit
-3. After completing significant tasks, provide a brief summary of what you did (but don't repeat your initial acknowledgment)
+2. **AFTER TOOLS - Brief past-tense confirmation**: After tools execute successfully, give a SHORT confirmation. Do NOT repeat details you already mentioned. Examples:
+   - "Done" or "Finished"
+   - "Fixed the indents" (if you didn't give details before)
+   - "Essay complete" (if you didn't explain before)
+
+   NEVER say the same information twice. If you described it before tools, just say "Done" after.
+
+   ONLY provide detailed after-summary if:
+   - An error occurred that needs explanation
+   - You discovered new information during execution
+   - The user asks a follow-up question
+
+3. ALWAYS use read_document first when you need to edit
 4. Be brief in your chat responses.
 5. WRITE IN THE STYLE OF THE REFERENCE DOCUMENT. This is your primary directive.
 6. For rewrites, ALWAYS clear first then write.
@@ -1871,9 +1893,6 @@ export function useDocuments() {
                 word_count: wordCount,
                 character_count: textContent.length,
                 styling: formatStylingForAI(stylingInfo),
-                message: focus === 'full' 
-                  ? `Document read successfully. ${wordCount} words.`
-                  : `Analyzed ${focus}. ${wordCount} total words in document.`,
               }),
             };
           }
@@ -1896,10 +1915,10 @@ export function useDocuments() {
           return {
             role: 'tool',
             tool_call_id: toolCall.id,
-            content: JSON.stringify({ success: true, message: 'Content added to document' }),
+            content: JSON.stringify({ success: true }),
           };
         }
-        
+
         case 'clear_document': {
           updateMessageStatus(assistantId, 'writing', 'Clearing document...');
           if (editorRef) {
@@ -1910,7 +1929,7 @@ export function useDocuments() {
           return {
             role: 'tool',
             tool_call_id: toolCall.id,
-            content: JSON.stringify({ success: true, message: 'Document cleared' }),
+            content: JSON.stringify({ success: true }),
           };
         }
         
@@ -1937,7 +1956,7 @@ export function useDocuments() {
                 return {
                   role: 'tool',
                   tool_call_id: toolCall.id,
-                  content: JSON.stringify({ success: true, message: 'Text replaced' }),
+                  content: JSON.stringify({ success: true }),
                 };
               } else {
                 return {
@@ -1994,7 +2013,7 @@ export function useDocuments() {
           return {
             role: 'tool',
             tool_call_id: toolCall.id,
-            content: JSON.stringify({ success: true, message: 'Content inserted' }),
+            content: JSON.stringify({ success: true }),
           };
         }
         
@@ -2016,7 +2035,7 @@ export function useDocuments() {
             return {
               role: 'tool',
               tool_call_id: toolCall.id,
-              content: JSON.stringify({ success, message: success ? 'Formatting applied' : 'Failed to apply formatting' }),
+              content: JSON.stringify({ success, error: success ? undefined : 'Failed to apply formatting' }),
             };
           }
           return {
@@ -2047,7 +2066,6 @@ export function useDocuments() {
                 results_count: results.length,
                 results: formattedResults,
                 current_date: currentDate,
-                instructions: 'Use these sources for citations. For "Accessed" dates, use today\'s date: ' + currentDate,
               }),
             };
           } catch (err) {
