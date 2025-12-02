@@ -188,6 +188,29 @@ const DOCUMENT_TOOLS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'indent_body_paragraphs',
+      description: 'Apply first-line indent to all body paragraphs in the document. Use this for MLA/APA formatting. Skips header lines (first few lines with name, date, title, etc.) and special sections like Works Cited/References.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          indent_value: {
+            type: 'string',
+            description: 'The indent value, e.g. "0.5in" for half inch (standard for MLA/APA).',
+          },
+          skip_lines: {
+            type: 'number',
+            description: 'Number of lines to skip at the start (header block). For MLA use 5 (name, professor, class, date, title). For APA use 7 (title, name, dept, course, instructor, date, blank line).',
+          },
+        },
+        required: ['indent_value', 'skip_lines'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'search_web',
       description: 'Search the web for information to include in the document. Use this when writing essays that need citations, researching topics, or finding facts. Returns search results that you should use for citations.',
       strict: true,
@@ -312,7 +335,15 @@ const APA_TEMPLATE: EssayTemplate = {
 - Body paragraphs: Left-aligned with 0.5 inch first-line indent
 - References heading: Centered, Bold
 - Reference entries: Hanging indent (reverse indent)
-- In-text citations: (Author, Year) format`,
+- In-text citations: (Author, Year) format
+
+### REQUIRED TOOL CALLS (in order):
+1. format_text with fontFamily="Times New Roman" and target="all"
+2. format_text with fontSize="12pt" and target="all"
+3. format_text with align="center" for title, author, institution, course, instructor, date lines
+4. format_text with bold for title only
+5. indent_body_paragraphs with indent_value="0.5in" and skip_lines=7 (skips header block, indents all body paragraphs automatically)
+6. format_text with align="center" and bold for References heading`,
   createdAt: 0,
 };
 
@@ -356,7 +387,14 @@ const MLA_TEMPLATE: EssayTemplate = {
 - Body paragraphs: Left-aligned with 0.5 inch first-line indent
 - Works Cited heading: Centered, NOT bold (unlike APA)
 - Works Cited entries: Hanging indent
-- In-text citations: (Author Page) format, no comma`,
+- In-text citations: (Author Page) format, no comma
+
+### REQUIRED TOOL CALLS (in order):
+1. format_text with fontFamily="Times New Roman" and target="all"
+2. format_text with fontSize="12pt" and target="all"
+3. format_text with align="center" for title only
+4. indent_body_paragraphs with indent_value="0.5in" and skip_lines=5 (skips name, professor, class, date, title - indents all body paragraphs automatically)
+5. format_text with align="center" for Works Cited heading`,
   createdAt: 0,
 };
 
@@ -2045,6 +2083,76 @@ export function useDocuments() {
           };
         }
         
+        case 'indent_body_paragraphs': {
+          const indentValue = args.indent_value as string;
+          const skipLines = args.skip_lines as number;
+          updateMessageStatus(assistantId, 'formatting', 'Indenting body paragraphs...');
+
+          if (editorRef) {
+            const editor = editorRef.getEditor();
+            if (editor) {
+              saveScrollPosition();
+
+              // Get all paragraph nodes and their positions
+              const doc = editor.state.doc;
+              const paragraphsToIndent: { from: number; to: number }[] = [];
+              let paragraphIndex = 0;
+
+              // Special section markers to skip (Works Cited, References, etc.)
+              const skipMarkers = ['works cited', 'references', 'bibliography'];
+              let inSkipSection = false;
+
+              doc.descendants((node, pos) => {
+                if (node.type.name === 'paragraph') {
+                  const text = node.textContent.toLowerCase().trim();
+
+                  // Check if we're entering a skip section
+                  if (skipMarkers.some(marker => text === marker)) {
+                    inSkipSection = true;
+                  }
+
+                  // Skip header lines, empty paragraphs, and skip sections
+                  if (paragraphIndex >= skipLines && node.textContent.trim() && !inSkipSection) {
+                    paragraphsToIndent.push({ from: pos, to: pos + node.nodeSize });
+                  }
+
+                  paragraphIndex++;
+                }
+                return true;
+              });
+
+              // Apply indent to each paragraph (in reverse to preserve positions)
+              for (let i = paragraphsToIndent.length - 1; i >= 0; i--) {
+                const { from, to } = paragraphsToIndent[i];
+                editor.chain()
+                  .focus()
+                  .setTextSelection({ from, to })
+                  .run();
+                editorRef.setTextIndent(indentValue);
+              }
+
+              // Move cursor to end
+              editor.commands.focus('end');
+              restoreScrollPosition();
+
+              return {
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: JSON.stringify({
+                  success: true,
+                  paragraphs_indented: paragraphsToIndent.length,
+                  skipped_header_lines: skipLines,
+                }),
+              };
+            }
+          }
+          return {
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ success: false, error: 'Editor not available' }),
+          };
+        }
+
         case 'search_web': {
           const query = args.query as string;
           updateMessageStatus(assistantId, 'searching', `Searching for "${query.slice(0, 50)}${query.length > 50 ? '...' : ''}"...`);
@@ -2199,17 +2307,13 @@ You MUST follow this template exactly when writing. Match the structure, formatt
 
 ### Template: ${selectedTemplate.name}
 
----BEGIN TEMPLATE HTML---
-${selectedTemplate.htmlContent}
----END TEMPLATE HTML---
-
 ${selectedTemplate.formattingInstructions}
 
 CRITICAL INSTRUCTIONS:
-1. Follow the EXACT structure shown in the template (order of elements, headings, paragraphs)
-2. Apply the SAME fonts, sizes, and alignments as shown
-3. Use the format_text tool to match styling EXACTLY
-4. Replace placeholder text with actual content, but keep the formatting identical`;
+1. Follow the EXACT structure shown in the formatting instructions above
+2. Use format_text tool calls to apply fonts, sizes, and alignments EXACTLY as specified
+3. Write content first, then apply formatting using the tool calls
+4. Replace placeholder text with actual content while applying the exact formatting specified`;
     }
     
     const systemMessage: ChatMessage = {
