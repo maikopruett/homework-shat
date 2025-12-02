@@ -10,7 +10,7 @@ export interface ModelInfo {
 }
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
-  { id: 'minimax/minimax-m2', name: 'Minimax M2', provider: 'Minimax', isBest: true },
+  { id: 'z-ai/glm-4.6', name: 'GLM 4.6', provider: 'Z-AI', isBest: true },
   { id: 'google/gemini-2.5-flash-lite-preview-09-2025', name: 'Gemini 2.5 Flash', provider: 'Google', isFastest: true },
   { id: 'x-ai/grok-4.1-fast:free', name: 'Grok 4.1 Fast', provider: 'xAI' },
   { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera', provider: 'TNG' },
@@ -69,6 +69,7 @@ export interface StreamMetrics {
 export interface StreamCallbacks {
   onToken: (token: string) => void;
   onToolCalls?: (toolCalls: ToolCall[]) => Promise<ChatMessage[]>; // Returns tool results
+  onFollowUp?: () => void; // Called before making a follow-up call after tool execution - allows creating new message
   onComplete: (metrics: StreamMetrics) => void | Promise<void>;
   onError: (error: Error) => void | Promise<void>;
 }
@@ -140,7 +141,7 @@ export async function sendMessageStream(
   tools?: ToolDefinition[],
   tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } }
 ): Promise<void> {
-  console.log('[API] sendMessageStream called', { model, messageCount: messages.length, hasTools: !!tools });
+  console.log('[API] sendMessageStream called', { model, messageCount: messages.length, hasTools: !!tools, toolCount: tools?.length, tool_choice });
   const startTime = performance.now();
   let firstTokenTime: number | null = null;
   let tokenCount = 0;
@@ -272,10 +273,18 @@ export async function sendMessageStream(
     const generationTime = endTime - (firstTokenTime || startTime);
     const tps = generationTime > 0 ? (tokenCount / generationTime) * 1000 : 0;
 
-    // Handle tool calls if present
-    if (finishReason === 'tool_calls' && accumulatedToolCalls.size > 0 && callbacks.onToolCalls) {
+    console.log('[API] Stream finished', { 
+      finishReason, 
+      accumulatedToolCallsCount: accumulatedToolCalls.size,
+      hasOnToolCalls: !!callbacks.onToolCalls 
+    });
+
+    // Handle tool calls if present - check for various finish reasons
+    // Some models use 'tool_calls', others use 'tool_call' or 'function_call'
+    const isToolCallFinish = finishReason === 'tool_calls' || finishReason === 'tool_call' || finishReason === 'function_call';
+    if ((isToolCallFinish || accumulatedToolCalls.size > 0) && callbacks.onToolCalls && accumulatedToolCalls.size > 0) {
       const toolCalls = Array.from(accumulatedToolCalls.values());
-      console.log('[API] Tool calls detected:', toolCalls.length, 'calls');
+      console.log('[API] Tool calls detected:', toolCalls.length, 'calls', toolCalls);
       
       // Execute tool calls and get results
       const toolResults = await callbacks.onToolCalls(toolCalls);
@@ -288,6 +297,11 @@ export async function sendMessageStream(
       };
       
       const newMessages = [...messages, assistantMessage, ...toolResults];
+      
+      // Signal that we're about to make a follow-up call (allows creating new message)
+      if (callbacks.onFollowUp) {
+        callbacks.onFollowUp();
+      }
       
       // Make follow-up call with tool results
       console.log('[API] Making follow-up call with tool results');

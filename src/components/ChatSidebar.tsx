@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import type { Document, ChatMode, EssayTemplate } from '../hooks/useDocuments';
+import ReactMarkdown from 'react-markdown';
+import type { Document, ChatMode, EssayTemplate, MessageStatus } from '../hooks/useDocuments';
 import { AVAILABLE_MODELS } from '../api/openrouter';
 import { parseFile, isValidFileType, getAcceptedFileTypes, type ParsedFile } from '../utils/fileParser';
 import type { SearchResult } from '../api/exa';
@@ -9,7 +10,6 @@ interface ChatSidebarProps {
   documents: Document[];
   activeDocument: Document | undefined;
   isLoading: boolean;
-  isWritingToDoc: boolean;
   isSearching: boolean;
   selectedModel: string;
   onModelChange: (model: string) => void;
@@ -28,6 +28,51 @@ interface ChatSidebarProps {
   onSaveAsTemplate: (name: string) => void;
   onDeleteTemplate: (templateId: string) => void;
   editorRef: React.RefObject<TiptapEditorHandle | null>;
+}
+
+// Helper to get status icon
+function getStatusIcon(status: MessageStatus) {
+  switch (status) {
+    case 'thinking':
+      return (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-pulse">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 6v6l4 2"/>
+        </svg>
+      );
+    case 'reading':
+      return (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-pulse">
+          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+          <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+        </svg>
+      );
+    case 'searching':
+      return (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+          <circle cx="11" cy="11" r="8"/>
+          <path d="m21 21-4.35-4.35"/>
+        </svg>
+      );
+    case 'writing':
+      return (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-bounce">
+          <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+          <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+          <path d="M2 2l7.586 7.586"/>
+        </svg>
+      );
+    case 'formatting':
+      return (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-pulse">
+          <path d="M4 7V4h16v3"/>
+          <path d="M9 20h6"/>
+          <path d="M12 4v16"/>
+        </svg>
+      );
+    default:
+      return null;
+  }
 }
 
 export default function ChatSidebar({
@@ -458,30 +503,28 @@ export default function ChatSidebar({
             </div>
           )}
           {chatMessages.map((msg) => (
-            <div key={msg.id} className="flex flex-col gap-2">
-              <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-snug ${
-                msg.role === 'user' 
-                  ? 'self-end bg-blue-600 text-white rounded-br-sm' 
-                  : 'self-start bg-gray-100 text-gray-800 rounded-bl-sm whitespace-pre-wrap'
-              }`}>
-                {msg.role === 'assistant' && !msg.content ? (
-                  <span className="flex gap-1 py-1">
-                    <span className="w-2 h-2 bg-blue-600 rounded-full animate-[pulse-dot_1.4s_ease-in-out_infinite]" />
-                    <span className="w-2 h-2 bg-blue-600 rounded-full animate-[pulse-dot_1.4s_ease-in-out_infinite] [animation-delay:0.2s]" />
-                    <span className="w-2 h-2 bg-blue-600 rounded-full animate-[pulse-dot_1.4s_ease-in-out_infinite] [animation-delay:0.4s]" />
-                  </span>
-                ) : (
-                  msg.content
-                )}
-              </div>
-              {msg.role === 'assistant' && msg.isWriting && (
-                <div className="flex items-center gap-1.5 text-xs text-green-700 py-1 ml-1">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-500 animate-bounce">
-                    <path d="M12 19l7-7 3 3-7 7-3-3z"/>
-                    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
-                    <path d="M2 2l7.586 7.586"/>
-                  </svg>
-                  <span>Writing to document...</span>
+            <div key={msg.id} className="flex flex-col gap-1">
+              {msg.role === 'user' ? (
+                // User messages always shown
+                <div className="max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-snug self-end bg-blue-600 text-white rounded-br-sm">
+                  {msg.content}
+                </div>
+              ) : (
+                // Assistant messages - only show bubble when there's content
+                <>
+                  {msg.content && (
+                    // Show content bubble only when there's actual text
+                    <div className="max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-snug self-start bg-gray-100 text-gray-800 rounded-bl-sm prose prose-sm prose-gray max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5 [&_code]:bg-gray-200 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[13px] [&_pre]:bg-gray-800 [&_pre]:text-gray-100 [&_pre]:p-2 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_a]:text-blue-600 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-gray-300 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-gray-600">
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    </div>
+                  )}
+                </>
+              )}
+              {/* Per-message status indicator */}
+              {msg.role === 'assistant' && msg.status && msg.status !== 'done' && (
+                <div className="flex items-center gap-1.5 text-xs text-gray-500 py-0.5 ml-1">
+                  {getStatusIcon(msg.status)}
+                  <span>{msg.statusDetail || msg.status}</span>
                 </div>
               )}
             </div>
@@ -531,17 +574,6 @@ export default function ChatSidebar({
                 <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
               </svg>
               Parsing file...
-            </div>
-          )}
-
-          {/* Searching indicator */}
-          {isSearching && (
-            <div className="px-4 pt-2 text-xs text-purple-600 flex items-center gap-2">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-pulse">
-                <circle cx="11" cy="11" r="8"/>
-                <path d="m21 21-4.35-4.35"/>
-              </svg>
-              Researching topic...
             </div>
           )}
 

@@ -6,7 +6,6 @@ export default function App() {
     documents,
     activeDocument,
     isLoading,
-    isWritingToDoc,
     isSearching,
     selectedModel,
     setSelectedModel,
@@ -34,7 +33,6 @@ export default function App() {
       documents={documents}
       activeDocument={activeDocument}
       isLoading={isLoading}
-      isWritingToDoc={isWritingToDoc}
       isSearching={isSearching}
       selectedModel={selectedModel}
       onModelChange={setSelectedModel}

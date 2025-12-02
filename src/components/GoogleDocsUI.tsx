@@ -10,7 +10,6 @@ interface GoogleDocsUIProps {
   documents: Document[];
   activeDocument: Document | undefined;
   isLoading: boolean;
-  isWritingToDoc: boolean;
   isSearching: boolean;
   selectedModel: string;
   onModelChange: (model: string) => void;
@@ -74,7 +73,6 @@ export default function GoogleDocsUI({
   documents,
   activeDocument,
   isLoading,
-  isWritingToDoc,
   isSearching,
   selectedModel,
   onModelChange,
@@ -978,14 +976,12 @@ ${html}
                       className={`relative z-[1] text-center whitespace-nowrap outline-none text-xs leading-7 font-medium justify-center items-center inline-flex w-10 h-10 rounded-full border border-transparent transition-all duration-300 select-none ${
                         isSearching 
                           ? 'bg-purple-100 text-purple-600' 
-                          : isWritingToDoc 
-                            ? 'bg-green-100 text-green-600' 
-                            : isLoading 
-                              ? 'bg-blue-100 text-blue-600' 
-                              : 'text-gray-500 hover:bg-black/[0.06]'
+                          : isLoading 
+                            ? 'bg-blue-100 text-blue-600' 
+                            : 'text-gray-500 hover:bg-black/[0.06]'
                       }`}
                       role="status"
-                      aria-label={`Ghost Mode: ${isSearching ? 'Researching' : isWritingToDoc ? 'Writing' : isLoading ? 'Thinking' : 'Ready'}`}
+                      aria-label={`Ghost Mode: ${isSearching ? 'Researching' : isLoading ? 'Working' : 'Ready'}`}
                     >
                       <svg 
                         width="24" 
@@ -994,13 +990,11 @@ ${html}
                         fill={
                           isSearching 
                             ? '#9333ea' 
-                            : isWritingToDoc 
-                              ? '#22c55e' 
-                              : isLoading 
-                                ? '#3b82f6' 
-                                : '#5f6368'
+                            : isLoading 
+                              ? '#3b82f6' 
+                              : '#5f6368'
                         }
-                        className={`transition-all duration-300 ${(isLoading || isSearching || isWritingToDoc) ? 'animate-pulse' : ''}`}
+                        className={`transition-all duration-300 ${(isLoading || isSearching) ? 'animate-pulse' : ''}`}
                       >
                         <path d="M12 2C7.58 2 4 5.58 4 10v8c0 1.1.9 2 2 2h1c0-1.1.9-2 2-2s2 .9 2 2h2c0-1.1.9-2 2-2s2 .9 2 2h1c1.1 0 2-.9 2-2v-8c0-4.42-3.58-8-8-8zm-2 9c-.83 0-1.5-.67-1.5-1.5S9.17 8 10 8s1.5.67 1.5 1.5S10.83 11 10 11zm4 0c-.83 0-1.5-.67-1.5-1.5S13.17 8 14 8s1.5.67 1.5 1.5S14.83 11 14 11z"/>
                       </svg>
@@ -1884,7 +1878,7 @@ ${html}
       {/* Main Content Area with Document and Chat Sidebar */}
       <div className="flex flex-1 overflow-hidden relative">
         {/* Document Area */}
-        <div className={`flex-1 overflow-y-auto flex justify-center py-5 bg-gray-50 relative ${isWritingToDoc ? 'ai-writing' : ''}`}>
+        <div className="flex-1 overflow-y-auto flex justify-center py-5 bg-gray-50 relative">
           {/* Chat Toggle Arrow */}
           <button 
             className={`absolute right-3 top-5 w-9 h-9 border border-gray-300 bg-white rounded-full cursor-pointer flex items-center justify-center gap-0.5 text-gray-500 transition-all shadow-sm z-10 hover:bg-gray-100 hover:shadow-md ${chatOpen ? 'bg-blue-50 border-blue-600 text-blue-600' : ''}`}
@@ -1897,7 +1891,7 @@ ${html}
           </button>
 
           <div className="flex flex-col gap-2 pb-10">
-            <div className={`w-[816px] min-h-[1056px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.12),_0_1px_2px_rgba(0,0,0,0.24)] p-[72px_96px] relative flex-shrink-0 box-border ${isWritingToDoc ? 'shadow-[0_0_0_2px_#4caf50,_0_4px_12px_rgba(76,175,80,0.2)]' : ''}`} onKeyDown={handleKeyDown}>
+            <div className="w-[816px] min-h-[1056px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.12),_0_1px_2px_rgba(0,0,0,0.24)] p-[72px_96px] relative flex-shrink-0 box-border" onKeyDown={handleKeyDown}>
               <TiptapEditor
                 ref={editorRef}
                 content={activeDocument?.content || ''}
@@ -1918,7 +1912,6 @@ ${html}
           documents={documents}
           activeDocument={activeDocument}
           isLoading={isLoading}
-          isWritingToDoc={isWritingToDoc}
           isSearching={isSearching}
           selectedModel={selectedModel}
           onModelChange={onModelChange}

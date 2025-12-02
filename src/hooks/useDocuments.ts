@@ -4,12 +4,15 @@ import type { ChatMessage, ToolDefinition, ToolCall } from '../api/openrouter';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
 import { searchExa, formatSearchResultsForAI, type SearchResult } from '../api/exa';
 
+export type MessageStatus = 'thinking' | 'reading' | 'searching' | 'writing' | 'formatting' | 'done';
+
 export interface DocChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
-  isWriting?: boolean; // Indicates AI is writing to document
+  status?: MessageStatus;
+  statusDetail?: string; // e.g., "Searching for 'climate change'..."
 }
 
 export interface Document {
@@ -49,6 +52,25 @@ const DOCUMENT_TOOLS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'read_document',
+      description: 'Read and analyze the current document content. You MUST call this before making any edits to understand what exists in the document.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          focus: {
+            type: 'string',
+            description: 'What aspect to focus on: "full" for entire document, or describe specific section/element to analyze (e.g., "introduction", "formatting", "conclusion").',
+          },
+        },
+        required: ['focus'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'write_content',
       description: 'Append content to the end of the document. Use this to add new text, paragraphs, or sections. Content will be added after any existing content.',
       strict: true,
@@ -69,7 +91,7 @@ const DOCUMENT_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'clear_document',
-      description: 'Clear all content from the document. Use this before write_content when you need to completely rewrite or replace the document content.',
+      description: 'Clear all content from the document. ONLY use this if the document has existing content that needs to be replaced. Do NOT call this on an empty document.',
       strict: true,
       parameters: {
         type: 'object',
@@ -1225,30 +1247,75 @@ elevate, delve, innovative, captivating, streamline, leverage, multifaceted, com
 Never use these phrases:
 "It's not just about X, it's about Y", "In conclusion", "This essay will explore", "As we have seen", "game-changer", "at its core", "when it comes to", "the question of X is", "it is worth noting"
 
+## CRITICAL: Read-Plan-Execute Workflow
+
+For EVERY user request that requires document changes, follow this workflow:
+
+### 1. READ FIRST (Mandatory)
+Always call read_document before any edits. This helps you understand:
+- Current document structure and content
+- Existing formatting and styling
+- What needs to be changed vs preserved
+
+### 2. PLAN YOUR APPROACH
+Before making any tool calls, mentally plan:
+- What specific changes are needed?
+- How many tool calls will this require?
+- What's the most efficient order?
+
+### 3. EXECUTE EFFICIENTLY
+Make multiple tool calls in sequence when needed. Don't wait for user confirmation between steps of the same task.
+
+Examples:
+- "Indent all paragraphs" → read doc, identify each paragraph, call format_text for each one
+- "Make all headings bold" → read doc, identify headings, format each one
+- "Change font to Times New Roman" → read doc, call format_text with fontFamily for "all"
+
+### 4. RE-READ FOR NEW TASKS
+After completing a task, if the user asks a NEW question or gives a NEW instruction:
+- You MUST call read_document again before making changes
+- The document state has changed from your previous edits
+- Never assume you know the current state from memory
+
+### Example Workflow: "Indent all paragraphs"
+1. Call read_document to see all content
+2. Identify each paragraph that needs indenting
+3. Call format_text with textIndent for each paragraph in sequence
+4. Complete ALL calls before responding to the user
+
 ## How to Use the Tools
 
 You have the following tools available:
 
-1. **write_content**: Append text to the end of the document. Use for adding new content.
-2. **clear_document**: Clear all document content. Use before write_content when rewriting/replacing.
-3. **edit_text**: Find and replace specific text. Use for targeted edits.
-4. **insert_content**: Insert at start, end, before, or after specific text.
-5. **format_text**: Apply formatting (bold, italic, headings, colors, alignment, etc.)
-6. **search_web**: Search for information when you need citations or facts.
+1. **read_document**: Read and analyze the document. ALWAYS call this first before any edits.
+2. **write_content**: Append text to the end of the document. Use for adding new content.
+3. **clear_document**: Clear all document content. Use before write_content when rewriting/replacing.
+4. **edit_text**: Find and replace specific text. Use for targeted edits.
+5. **insert_content**: Insert at start, end, before, or after specific text.
+6. **format_text**: Apply formatting (bold, italic, headings, colors, alignment, etc.)
+7. **search_web**: Search for information when you need citations or facts.
 
 ### Common Patterns:
 
+**Before ANY editing:**
+- ALWAYS call read_document first to understand what's there
+
 **Writing new content to empty document:**
+- Call read_document (to confirm it's empty)
 - Use write_content directly
+- Do NOT call clear_document on an already empty document - it's wasteful
 
 **Rewriting/replacing existing content:**
-- First use clear_document
+- Call read_document first
+- ONLY use clear_document if there's existing content to clear
 - Then use write_content with the new content
 
 **Making small edits:**
+- Call read_document to find the exact text
 - Use edit_text with the exact text to find and the replacement
 
 **Adding content at the beginning:**
+- Call read_document first
 - Use insert_content with position="start"
 
 **Formatting after writing:**
@@ -1261,12 +1328,21 @@ You have the following tools available:
 
 ## Response Guidelines
 
-1. Be brief in your chat responses. Get to the point.
-2. When editing the document, use the tools - don't just describe what you would do.
-3. For rewrites, ALWAYS clear first then write. Never append a new version below the old one.
-4. Apply formatting AFTER writing content.
-5. Sound human. Be direct, skip pleasantries.
-6. When asked a question that doesn't need document changes, just answer without using tools.`;
+1. **ALWAYS ACKNOWLEDGE FIRST**: Before using ANY tools, write a brief 1-sentence acknowledgment of what you're about to do. Examples:
+   - "I'll write an essay on climate change for you."
+   - "Let me fix that formatting."
+   - "I'll add a conclusion to your essay."
+   - "Rewriting the introduction now."
+   This lets the user know you understood their request before the loading indicators appear.
+
+2. ALWAYS use read_document first when you need to edit
+3. After completing significant tasks, provide a brief summary of what you did
+4. Be brief in your chat responses. Get to the point.
+5. When editing the document, use the tools - don't just describe what you would do.
+6. For rewrites, ALWAYS clear first then write. Never append a new version below the old one.
+7. Apply formatting AFTER writing content.
+8. Sound human. Be direct, skip pleasantries.
+9. When asked a question that doesn't need document changes, just answer without using tools.`;
 
 const CHAT_MODE_SYSTEM_PROMPT = `You are a writing assistant helping a user with their document. You can see the document content and its styling/formatting, but you CANNOT edit it directly in this mode.
 
@@ -1333,30 +1409,69 @@ ${persona.documentContent}
 6. Mirror how they structure arguments or present information.
 7. NEVER use em-dashes (—) or en-dashes (–) unless the reference document uses them frequently.
 
+## CRITICAL: Read-Plan-Execute Workflow
+
+For EVERY user request that requires document changes, follow this workflow:
+
+### 1. READ FIRST (Mandatory)
+Always call read_document before any edits. This helps you understand:
+- Current document structure and content
+- Existing formatting and styling
+- What needs to be changed vs preserved
+
+### 2. PLAN YOUR APPROACH
+Before making any tool calls, mentally plan:
+- What specific changes are needed?
+- How many tool calls will this require?
+- What's the most efficient order?
+
+### 3. EXECUTE EFFICIENTLY
+Make multiple tool calls in sequence when needed. Don't wait for user confirmation between steps of the same task.
+
+Examples:
+- "Indent all paragraphs" → read doc, identify each paragraph, call format_text for each one
+- "Make all headings bold" → read doc, identify headings, format each one
+- "Change font to Times New Roman" → read doc, call format_text with fontFamily for "all"
+
+### 4. RE-READ FOR NEW TASKS
+After completing a task, if the user asks a NEW question or gives a NEW instruction:
+- You MUST call read_document again before making changes
+- The document state has changed from your previous edits
+- Never assume you know the current state from memory
+
 ## How to Use the Tools
 
 You have the following tools available:
 
-1. **write_content**: Append text to the end of the document. Use for adding new content.
-2. **clear_document**: Clear all document content. Use before write_content when rewriting/replacing.
-3. **edit_text**: Find and replace specific text. Use for targeted edits.
-4. **insert_content**: Insert at start, end, before, or after specific text.
-5. **format_text**: Apply formatting (bold, italic, headings, colors, alignment, etc.)
-6. **search_web**: Search for information when you need citations or facts.
+1. **read_document**: Read and analyze the document. ALWAYS call this first before any edits.
+2. **write_content**: Append text to the end of the document. Use for adding new content.
+3. **clear_document**: Clear all document content. Use before write_content when rewriting/replacing.
+4. **edit_text**: Find and replace specific text. Use for targeted edits.
+5. **insert_content**: Insert at start, end, before, or after specific text.
+6. **format_text**: Apply formatting (bold, italic, headings, colors, alignment, etc.)
+7. **search_web**: Search for information when you need citations or facts.
 
 ### Common Patterns:
 
+**Before ANY editing:**
+- ALWAYS call read_document first
+
 **Writing new content to empty document:**
+- Call read_document first
 - Use write_content directly
+- Do NOT call clear_document on an already empty document - it's wasteful
 
 **Rewriting/replacing existing content:**
-- First use clear_document
+- Call read_document first
+- ONLY use clear_document if there's existing content to clear
 - Then use write_content with the new content
 
 **Making small edits:**
+- Call read_document to find the exact text
 - Use edit_text with the exact text to find and the replacement
 
 **Adding content at the beginning:**
+- Call read_document first
 - Use insert_content with position="start"
 
 **Formatting after writing:**
@@ -1365,10 +1480,18 @@ You have the following tools available:
 
 ## Response Guidelines
 
-1. Be brief in your chat responses.
-2. WRITE IN THE STYLE OF THE REFERENCE DOCUMENT. This is your primary directive.
-3. For rewrites, ALWAYS clear first then write.
-4. Apply formatting AFTER writing content.`;
+1. **ALWAYS ACKNOWLEDGE FIRST**: Before using ANY tools, write a brief 1-sentence acknowledgment of what you're about to do. Examples:
+   - "I'll write an essay on climate change for you."
+   - "Let me fix that formatting."
+   - "Rewriting the introduction now."
+   This lets the user know you understood their request before the loading indicators appear.
+
+2. ALWAYS use read_document first when you need to edit
+3. After completing significant tasks, provide a brief summary of what you did
+4. Be brief in your chat responses.
+5. WRITE IN THE STYLE OF THE REFERENCE DOCUMENT. This is your primary directive.
+6. For rewrites, ALWAYS clear first then write.
+7. Apply formatting AFTER writing content.`;
 }
 
 // Function to generate persona-aware chat mode prompt
@@ -1423,7 +1546,6 @@ export function useDocuments() {
   });
   
   const [isLoading, setIsLoading] = useState(false);
-  const [isWritingToDoc, setIsWritingToDoc] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -1668,6 +1790,26 @@ export function useDocuments() {
     return title || 'Untitled document';
   }, []);
 
+  // Helper to update message status
+  const updateMessageStatus = useCallback((
+    messageId: string,
+    status: MessageStatus,
+    statusDetail?: string
+  ) => {
+    setDocuments(prev => prev.map(doc => 
+      doc.id === activeDocId 
+        ? { 
+            ...doc, 
+            chatMessages: doc.chatMessages.map(m => 
+              m.id === messageId 
+                ? { ...m, status, statusDetail }
+                : m
+            ),
+          }
+        : doc
+    ));
+  }, [activeDocId]);
+
   // Perform a search and return results
   const performSearch = useCallback(async (query: string): Promise<SearchResult[]> => {
     setIsSearching(true);
@@ -1708,26 +1850,45 @@ export function useDocuments() {
     
     const editorRef = editorRefStore.current;
     
-    // Mark as writing to doc
-    setIsWritingToDoc(true);
-    setDocuments(prev => prev.map(doc => 
-      doc.id === activeDocId 
-        ? { 
-            ...doc, 
-            chatMessages: doc.chatMessages.map(m => 
-              m.id === assistantId 
-                ? { ...m, isWriting: true }
-                : m
-            ),
-            updatedAt: Date.now() 
-          }
-        : doc
-    ));
+    // Status will be updated per-tool in each case below
     
     try {
       switch (name) {
+        case 'read_document': {
+          const focus = args.focus as string;
+          updateMessageStatus(assistantId, 'reading', focus === 'full' ? 'Reading document...' : `Analyzing ${focus}...`);
+          
+          if (editorRef) {
+            const textContent = editorRef.getText();
+            const stylingInfo = extractDocumentStyling(editorRef);
+            const wordCount = textContent.split(/\s+/).filter(Boolean).length;
+            
+            return {
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({
+                success: true,
+                focus,
+                content: textContent || '(empty document)',
+                word_count: wordCount,
+                character_count: textContent.length,
+                styling: formatStylingForAI(stylingInfo),
+                message: focus === 'full' 
+                  ? `Document read successfully. ${wordCount} words.`
+                  : `Analyzed ${focus}. ${wordCount} total words in document.`,
+              }),
+            };
+          }
+          return {
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ success: false, error: 'Editor not available' }),
+          };
+        }
+        
         case 'write_content': {
           const content = args.content as string;
+          updateMessageStatus(assistantId, 'writing', 'Writing content...');
           if (editorRef) {
             saveScrollPosition();
             const htmlContent = textToHtml(content);
@@ -1742,6 +1903,7 @@ export function useDocuments() {
         }
         
         case 'clear_document': {
+          updateMessageStatus(assistantId, 'writing', 'Clearing document...');
           if (editorRef) {
             saveScrollPosition();
             editorRef.clearContent();
@@ -1757,6 +1919,7 @@ export function useDocuments() {
         case 'edit_text': {
           const findText = args.find_text as string;
           const replaceWith = args.replace_with as string;
+          updateMessageStatus(assistantId, 'writing', 'Editing text...');
           
           if (editorRef) {
             const editor = editorRef.getEditor();
@@ -1798,6 +1961,7 @@ export function useDocuments() {
           const content = args.content as string;
           const position = args.position as 'start' | 'end' | 'before' | 'after';
           const targetText = args.target_text as string | undefined;
+          updateMessageStatus(assistantId, 'writing', `Inserting at ${position}...`);
           
           if (editorRef) {
             const editor = editorRef.getEditor();
@@ -1840,6 +2004,7 @@ export function useDocuments() {
           const formatType = args.format_type as string;
           const target = args.target as string;
           const value = args.value as string | undefined;
+          updateMessageStatus(assistantId, 'formatting', `Applying ${formatType}...`);
           
           if (editorRef) {
             saveScrollPosition();
@@ -1865,6 +2030,7 @@ export function useDocuments() {
         
         case 'search_web': {
           const query = args.query as string;
+          updateMessageStatus(assistantId, 'searching', `Searching for "${query.slice(0, 50)}${query.length > 50 ? '...' : ''}"...`);
           
           setIsSearching(true);
           try {
@@ -1906,22 +2072,9 @@ export function useDocuments() {
           };
       }
     } finally {
-      setIsWritingToDoc(false);
-      setDocuments(prev => prev.map(doc => 
-        doc.id === activeDocId 
-          ? { 
-              ...doc, 
-              chatMessages: doc.chatMessages.map(m => 
-                m.id === assistantId 
-                  ? { ...m, isWriting: false }
-                  : m
-              ),
-              updatedAt: Date.now() 
-            }
-          : doc
-      ));
+      // Status is managed per-tool call, no cleanup needed here
     }
-  }, [activeDocId, saveScrollPosition, restoreScrollPosition]);
+  }, [activeDocId, saveScrollPosition, restoreScrollPosition, updateMessageStatus]);
 
   // Send a chat message with tool calling capability
   const sendMessage = useCallback(async (
@@ -1958,7 +2111,11 @@ export function useDocuments() {
       timestamp: Date.now(),
     };
 
-    const assistantId = crypto.randomUUID();
+    // Use an object so assistantId can be updated when follow-up calls create new messages
+    const messageState = {
+      assistantId: crypto.randomUUID(),
+      firstTokenReceived: false,
+    };
     streamingChatRef.current = '';
     pendingSearchResultsRef.current = null;
 
@@ -2046,11 +2203,12 @@ CRITICAL INSTRUCTIONS:
 
     // Create placeholder for streaming message
     const assistantMessage: DocChatMessage = {
-      id: assistantId,
+      id: messageState.assistantId,
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
-      isWriting: false,
+      status: 'thinking',
+      statusDetail: 'Thinking...',
     };
 
     setDocuments(prev => prev.map(doc => 
@@ -2064,20 +2222,26 @@ CRITICAL INSTRUCTIONS:
 
     // Determine which tools to use based on mode
     const tools = mode === 'edit' ? DOCUMENT_TOOLS : undefined;
-
+    
     console.log('[Stream] Starting stream with model:', selectedModel, 'mode:', mode, 'tools:', tools?.length || 0);
     await sendMessageStream(
       [systemMessage, ...chatHistory],
       {
         onToken: (token: string) => {
           streamingChatRef.current += token;
+          messageState.firstTokenReceived = true;
+          
+          // Trim leading/trailing whitespace for display
+          const displayContent = streamingChatRef.current.trim();
+          
+          // Only update content, don't touch status - let tool executions control that
           setDocuments(prev => prev.map(doc => 
             doc.id === activeDocId 
               ? { 
                   ...doc, 
                   chatMessages: doc.chatMessages.map(m => 
-                    m.id === assistantId 
-                      ? { ...m, content: streamingChatRef.current }
+                    m.id === messageState.assistantId 
+                      ? { ...m, content: displayContent }
                       : m
                   ),
                   updatedAt: Date.now() 
@@ -2091,11 +2255,67 @@ CRITICAL INSTRUCTIONS:
           // Execute each tool call and collect results
           const toolResults: ChatMessage[] = [];
           for (const toolCall of toolCalls) {
-            const result = await executeToolCall(toolCall, assistantId, currentDate);
+            const result = await executeToolCall(toolCall, messageState.assistantId, currentDate);
             toolResults.push(result);
           }
           
           return toolResults;
+        },
+        onFollowUp: () => {
+          console.log('[Stream] Follow-up starting');
+          
+          // Check if current message has content
+          const currentContent = streamingChatRef.current.trim();
+          
+          if (currentContent) {
+            // Current message has content - mark it done and create a new message
+            console.log('[Stream] Current message has content, creating new bubble');
+            
+            setDocuments(prev => prev.map(doc => 
+              doc.id === activeDocId 
+                ? { 
+                    ...doc, 
+                    chatMessages: doc.chatMessages.map(m => 
+                      m.id === messageState.assistantId 
+                        ? { ...m, status: 'done' as const, statusDetail: undefined }
+                        : m
+                    ),
+                    updatedAt: Date.now() 
+                  }
+                : doc
+            ));
+            
+            // Create a new message for the follow-up response
+            const newAssistantId = crypto.randomUUID();
+            messageState.assistantId = newAssistantId;
+            streamingChatRef.current = '';
+            messageState.firstTokenReceived = false;
+            
+            const newAssistantMessage: DocChatMessage = {
+              id: newAssistantId,
+              role: 'assistant',
+              content: '',
+              timestamp: Date.now(),
+              status: 'thinking',
+              statusDetail: 'Working...',
+            };
+            
+            setDocuments(prev => prev.map(doc => 
+              doc.id === activeDocId 
+                ? { 
+                    ...doc, 
+                    chatMessages: [...doc.chatMessages, newAssistantMessage],
+                    updatedAt: Date.now() 
+                  }
+                : doc
+            ));
+          } else {
+            // Current message has no content - just reset and continue using it
+            // Don't update status here - let the tool execution status updates come through
+            console.log('[Stream] Current message is empty, reusing same bubble');
+            streamingChatRef.current = '';
+            messageState.firstTokenReceived = false;
+          }
         },
         onComplete: async () => {
           console.log('[Stream] onComplete called');
@@ -2115,15 +2335,16 @@ CRITICAL INSTRUCTIONS:
               console.error('[Stream] Error saving document content:', editorErr);
             }
             
-            // Mark writing complete
-            console.log('[Stream] Marking writing complete');
+            // Mark complete
+            console.log('[Stream] Marking complete');
+            const finalContent = streamingChatRef.current.trim();
             setDocuments(prev => prev.map(doc => 
               doc.id === activeDocId 
                 ? { 
                     ...doc, 
                     chatMessages: doc.chatMessages.map(m => 
-                      m.id === assistantId 
-                        ? { ...m, content: streamingChatRef.current, isWriting: false }
+                      m.id === messageState.assistantId 
+                        ? { ...m, content: finalContent, status: 'done' as const, statusDetail: undefined }
                         : m
                     ),
                     updatedAt: Date.now() 
@@ -2135,7 +2356,6 @@ CRITICAL INSTRUCTIONS:
           } finally {
             console.log('[Stream] onComplete finally - setting isLoading=false');
             setIsLoading(false);
-            setIsWritingToDoc(false);
             abortControllerRef.current = null;
           }
         },
@@ -2154,8 +2374,8 @@ CRITICAL INSTRUCTIONS:
                   ? { 
                       ...doc, 
                       chatMessages: doc.chatMessages.map(m => 
-                        m.id === assistantId 
-                          ? { ...m, content: streamingChatRef.current || '(stopped)', isWriting: false }
+                        m.id === messageState.assistantId 
+                          ? { ...m, content: streamingChatRef.current || '(stopped)', status: 'done' as const, statusDetail: undefined }
                           : m
                       ),
                       updatedAt: Date.now() 
@@ -2169,7 +2389,7 @@ CRITICAL INSTRUCTIONS:
                 doc.id === activeDocId 
                   ? { 
                       ...doc, 
-                      chatMessages: doc.chatMessages.filter(m => m.id !== assistantId),
+                      chatMessages: doc.chatMessages.filter(m => m.id !== messageState.assistantId),
                       updatedAt: Date.now() 
                     }
                   : doc
@@ -2180,14 +2400,14 @@ CRITICAL INSTRUCTIONS:
           } finally {
             console.log('[Stream] onError finally - setting isLoading=false');
             setIsLoading(false);
-            setIsWritingToDoc(false);
             abortControllerRef.current = null;
           }
         },
       },
       selectedModel,
       abortControllerRef.current.signal,
-      tools
+      tools,
+      tools ? 'auto' : undefined // Enable tool_choice when tools are available
     );
     console.log('[Stream] sendMessageStream returned - isLoading should now be false');
   }, [activeDocument, activeDocId, isLoading, selectedModel, personaSettings, selectedTemplate, generateTitleFromMessage, executeToolCall]);
@@ -2212,7 +2432,6 @@ CRITICAL INSTRUCTIONS:
     activeDocument,
     activeDocId,
     isLoading,
-    isWritingToDoc,
     isSearching,
     searchResults,
     error,
