@@ -1,5 +1,4 @@
 const API_URL = '/api/chat';
-const DEFAULT_MODEL = 'moonshotai/kimi-k2-thinking';
 
 export interface ModelInfo {
   id: string;
@@ -7,20 +6,15 @@ export interface ModelInfo {
   provider: string;
   isBest?: boolean;
   isFastest?: boolean;
+  isDefault?: boolean;
 }
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
-  { id: 'z-ai/glm-4.6', name: 'GLM 4.6', provider: 'Z-AI', isBest: true },
-  { id: 'google/gemini-2.5-flash-lite-preview-09-2025', name: 'Gemini 2.5 Flash', provider: 'Google', isFastest: true },
-  { id: 'x-ai/grok-4.1-fast:free', name: 'Grok 4.1 Fast', provider: 'xAI' },
-  { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera', provider: 'TNG' },
-  { id: 'kwaipilot/kat-coder-pro:free', name: 'Kat Coder Pro', provider: 'Kwaipilot' },
-  { id: 'tngtech/deepseek-r1t-chimera:free', name: 'DeepSeek R1T Chimera', provider: 'TNG' },
-  { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air', provider: 'Z-AI' },
-  { id: 'nvidia/nemotron-nano-12b-v2-vl:free', name: 'Nemotron Nano 12B V2 VL', provider: 'NVIDIA' },
-  { id: 'qwen/qwen3-coder:free', name: 'Qwen 3 Coder', provider: 'Qwen' },
-  { id: 'google/gemma-3-27b-it:free', name: 'Gemma 3 27B', provider: 'Google' },
+  { id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5', provider: 'Anthropic', isBest: true },
+  { id: 'x-ai/grok-4-fast', name: 'Grok 4 Fast', provider: 'xAI', isFastest: true, isDefault: true },
 ];
+
+export const DEFAULT_MODEL = AVAILABLE_MODELS.find(m => m.isDefault)?.id || AVAILABLE_MODELS[0].id;
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -196,6 +190,7 @@ export async function sendMessageStream(
     // Track accumulated tool calls
     const accumulatedToolCalls = new Map<number, ToolCall>();
     let finishReason: string | null = null;
+    let accumulatedContent = '';
 
     while (true) {
       // Add timeout to stream reads to prevent infinite hangs
@@ -244,14 +239,33 @@ export async function sendMessageStream(
                   console.log('[API] First token received after', Math.round(firstTokenTime - startTime), 'ms');
                 }
                 tokenCount++;
+                accumulatedContent += content;
                 callbacks.onToken(content);
               }
               
-              // Handle tool call deltas
+              // Handle tool call deltas (streaming format)
               const toolCallDeltas = choice.delta?.tool_calls;
               if (toolCallDeltas && Array.isArray(toolCallDeltas)) {
                 for (const delta of toolCallDeltas) {
                   accumulateToolCallDelta(accumulatedToolCalls, delta);
+                }
+              }
+              
+              // Handle non-delta tool calls (some models return full tool calls in message)
+              const messageToolCalls = choice.message?.tool_calls;
+              if (messageToolCalls && Array.isArray(messageToolCalls)) {
+                for (let i = 0; i < messageToolCalls.length; i++) {
+                  const tc = messageToolCalls[i];
+                  if (tc.id && tc.function?.name) {
+                    accumulatedToolCalls.set(i, {
+                      id: tc.id,
+                      type: 'function',
+                      function: {
+                        name: tc.function.name,
+                        arguments: tc.function.arguments || '',
+                      },
+                    });
+                  }
                 }
               }
               
@@ -276,7 +290,8 @@ export async function sendMessageStream(
     console.log('[API] Stream finished', { 
       finishReason, 
       accumulatedToolCallsCount: accumulatedToolCalls.size,
-      hasOnToolCalls: !!callbacks.onToolCalls 
+      hasOnToolCalls: !!callbacks.onToolCalls,
+      toolCallNames: Array.from(accumulatedToolCalls.values()).map(tc => tc.function.name),
     });
 
     // Handle tool calls if present - check for various finish reasons
@@ -292,7 +307,7 @@ export async function sendMessageStream(
       // Build new messages array with assistant's tool call message and tool results
       const assistantMessage: ChatMessage = {
         role: 'assistant',
-        content: null,
+        content: accumulatedContent || null,
         tool_calls: toolCalls,
       };
       

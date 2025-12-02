@@ -31,7 +31,16 @@ interface ChatSidebarProps {
 }
 
 // Helper to get status icon
-function getStatusIcon(status: MessageStatus) {
+function getStatusIcon(status: MessageStatus, statusDetail?: string) {
+  // Show checkmark for completed steps like "Research done"
+  if (statusDetail === 'Research done') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+    );
+  }
+  
   switch (status) {
     case 'thinking':
       return (
@@ -523,7 +532,7 @@ export default function ChatSidebar({
               {/* Per-message status indicator */}
               {msg.role === 'assistant' && msg.status && msg.status !== 'done' && (
                 <div className="flex items-center gap-1.5 text-xs text-gray-500 py-0.5 ml-1">
-                  {getStatusIcon(msg.status)}
+                  {getStatusIcon(msg.status, msg.statusDetail)}
                   <span>{msg.statusDetail || msg.status}</span>
                 </div>
               )}

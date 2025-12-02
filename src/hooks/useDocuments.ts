@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { sendMessageStream } from '../api/openrouter';
+import { sendMessageStream, DEFAULT_MODEL } from '../api/openrouter';
 import type { ChatMessage, ToolDefinition, ToolCall } from '../api/openrouter';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
 import { searchExa, formatSearchResultsForAI, type SearchResult } from '../api/exa';
@@ -44,7 +44,6 @@ const MODEL_STORAGE_KEY = 'homework-selected-model';
 const PERSONA_STORAGE_KEY = 'homework-persona-settings';
 const GHOST_MODE_STORAGE_KEY = 'homework-ghost-mode';
 const TEMPLATES_STORAGE_KEY = 'homework-essay-templates';
-const DEFAULT_MODEL = 'x-ai/grok-4.1-fast:free';
 
 // ==================== TOOL DEFINITIONS ====================
 
@@ -1328,15 +1327,14 @@ You have the following tools available:
 
 ## Response Guidelines
 
-1. **ALWAYS ACKNOWLEDGE FIRST**: Before using ANY tools, write a brief 1-sentence acknowledgment of what you're about to do. Examples:
+1. **ACKNOWLEDGE ONCE AT THE START**: Write ONE brief acknowledgment before your first tool call. Examples:
    - "I'll write an essay on climate change for you."
    - "Let me fix that formatting."
-   - "I'll add a conclusion to your essay."
    - "Rewriting the introduction now."
-   This lets the user know you understood their request before the loading indicators appear.
+   IMPORTANT: Do NOT repeat or rephrase this acknowledgment after tool calls complete. Just continue working or give a final summary.
 
 2. ALWAYS use read_document first when you need to edit
-3. After completing significant tasks, provide a brief summary of what you did
+3. After completing significant tasks, provide a brief summary of what you did (but don't repeat your initial acknowledgment)
 4. Be brief in your chat responses. Get to the point.
 5. When editing the document, use the tools - don't just describe what you would do.
 6. For rewrites, ALWAYS clear first then write. Never append a new version below the old one.
@@ -1480,14 +1478,14 @@ You have the following tools available:
 
 ## Response Guidelines
 
-1. **ALWAYS ACKNOWLEDGE FIRST**: Before using ANY tools, write a brief 1-sentence acknowledgment of what you're about to do. Examples:
+1. **ACKNOWLEDGE ONCE AT THE START**: Write ONE brief acknowledgment before your first tool call. Examples:
    - "I'll write an essay on climate change for you."
    - "Let me fix that formatting."
    - "Rewriting the introduction now."
-   This lets the user know you understood their request before the loading indicators appear.
+   IMPORTANT: Do NOT repeat or rephrase this acknowledgment after tool calls complete. Just continue working or give a final summary.
 
 2. ALWAYS use read_document first when you need to edit
-3. After completing significant tasks, provide a brief summary of what you did
+3. After completing significant tasks, provide a brief summary of what you did (but don't repeat your initial acknowledgment)
 4. Be brief in your chat responses.
 5. WRITE IN THE STYLE OF THE REFERENCE DOCUMENT. This is your primary directive.
 6. For rewrites, ALWAYS clear first then write.
@@ -2257,6 +2255,12 @@ CRITICAL INSTRUCTIONS:
           for (const toolCall of toolCalls) {
             const result = await executeToolCall(toolCall, messageState.assistantId, currentDate);
             toolResults.push(result);
+          }
+          
+          // Update status after searches complete
+          const hadSearches = toolCalls.some(tc => tc.function.name === 'search_web');
+          if (hadSearches) {
+            updateMessageStatus(messageState.assistantId, 'thinking', 'Research done');
           }
           
           return toolResults;
