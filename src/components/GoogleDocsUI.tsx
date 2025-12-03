@@ -479,7 +479,7 @@ ${html}
   const downloadAsPdf = () => {
     const html = editorRef.current?.getHTML() || '';
     const title = getDocumentTitle();
-    
+
     const printWindow = window.open('', '_blank');
     if (printWindow) {
       printWindow.document.write(`
@@ -489,11 +489,66 @@ ${html}
   <title>${title}</title>
   <style>
     @page { margin: 1in; }
-    body { font-family: Arial, sans-serif; line-height: 1.6; }
-    h1, h2, h3, h4, h5, h6 { margin-top: 1.5em; margin-bottom: 0.5em; }
-    p { margin: 1em 0; }
-    ul, ol { margin: 1em 0; padding-left: 2em; }
-    blockquote { border-left: 3px solid #ccc; margin: 1em 0; padding-left: 1em; color: #666; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.5;
+      font-size: 12pt;
+    }
+    /* Paragraphs: NO margin - only spacing if explicitly in document */
+    p {
+      margin: 0;
+      padding: 0;
+      min-height: 1.15em;
+    }
+    /* Headings keep their margins */
+    h1 { font-size: 28pt; font-weight: 600; margin: 24px 0 12px 0; }
+    h2 { font-size: 21pt; font-weight: 600; margin: 20px 0 10px 0; }
+    h3 { font-size: 16pt; font-weight: 600; margin: 18px 0 8px 0; }
+    h4 { font-size: 13pt; font-weight: 600; margin: 16px 0 6px 0; }
+    h5 { font-size: 11pt; font-weight: 600; margin: 14px 0 4px 0; }
+    h6 { font-size: 10pt; font-weight: 600; margin: 12px 0 4px 0; color: #5f6368; }
+    /* Lists */
+    ul, ol { margin: 8px 0; padding-left: 24px; }
+    ul { list-style-type: disc; }
+    ol { list-style-type: decimal; }
+    li { margin: 4px 0; line-height: 1.5; }
+    li p { margin: 0; }
+    /* Blockquotes */
+    blockquote {
+      border-left: 4px solid #dadce0;
+      padding-left: 16px;
+      margin: 16px 0;
+      color: #5f6368;
+      font-style: italic;
+    }
+    blockquote p { margin: 0; }
+    /* Code */
+    pre {
+      background: #f8f9fa;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 16px;
+      margin: 16px 0;
+      overflow-x: auto;
+    }
+    code {
+      font-family: 'Roboto Mono', 'Consolas', monospace;
+      font-size: 13px;
+      background: #f1f3f4;
+      border-radius: 4px;
+      padding: 2px 6px;
+    }
+    pre code { background: none; padding: 0; }
+    /* Horizontal rule */
+    hr { border: none; border-top: 1px solid #dadce0; margin: 24px 0; }
+    /* Links */
+    a { color: #1a73e8; text-decoration: underline; }
+    /* Text formatting */
+    strong { font-weight: 700; }
+    em { font-style: italic; }
+    u { text-decoration: underline; }
+    s { text-decoration: line-through; }
   </style>
 </head>
 <body>

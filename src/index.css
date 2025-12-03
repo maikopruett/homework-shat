@@ -349,3 +349,141 @@ body {
     min-height: auto;
   }
 }
+
+/* ============================================
+   PRINT STYLES - Preserve document appearance
+   ============================================ */
+@media print {
+  /* Hide UI elements when printing */
+  body > *:not(#root) {
+    display: none !important;
+  }
+
+  /* Reset body styles for print */
+  body {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Hide everything except the editor content */
+  #root > *:not(.gdocs-page),
+  .gdocs-page > *:not(.gdocs-page-content),
+  header,
+  nav,
+  aside,
+  footer,
+  [class*="sidebar"],
+  [class*="toolbar"],
+  [class*="menu"],
+  button,
+  .chat-sidebar,
+  .global-chat-panel {
+    display: none !important;
+  }
+
+  /* Make the page content fill the print area */
+  .gdocs-page {
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: auto !important;
+    background: white !important;
+  }
+
+  .gdocs-page-content {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* CRITICAL: Preserve paragraph spacing exactly as on screen */
+  .tiptap-editor-content p {
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 1.15em;
+    line-height: 1.5;
+    /* Prevent browsers from adding extra space */
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* Ensure headings maintain their margins */
+  .tiptap-editor-content h1 {
+    margin: 24px 0 12px 0 !important;
+    page-break-after: avoid;
+  }
+
+  .tiptap-editor-content h2 {
+    margin: 20px 0 10px 0 !important;
+    page-break-after: avoid;
+  }
+
+  .tiptap-editor-content h3 {
+    margin: 18px 0 8px 0 !important;
+    page-break-after: avoid;
+  }
+
+  .tiptap-editor-content h4 {
+    margin: 16px 0 6px 0 !important;
+    page-break-after: avoid;
+  }
+
+  .tiptap-editor-content h5 {
+    margin: 14px 0 4px 0 !important;
+    page-break-after: avoid;
+  }
+
+  .tiptap-editor-content h6 {
+    margin: 12px 0 4px 0 !important;
+    page-break-after: avoid;
+  }
+
+  /* Lists should not have extra spacing */
+  .tiptap-editor-content ul,
+  .tiptap-editor-content ol {
+    margin: 8px 0 !important;
+    padding-left: 24px !important;
+  }
+
+  .tiptap-editor-content li {
+    margin: 4px 0 !important;
+  }
+
+  .tiptap-editor-content li p {
+    margin: 0 !important;
+  }
+
+  /* Blockquotes */
+  .tiptap-editor-content blockquote {
+    margin: 16px 0 !important;
+    page-break-inside: avoid;
+  }
+
+  .tiptap-editor-content blockquote p {
+    margin: 0 !important;
+  }
+
+  /* Code blocks should not break across pages */
+  .tiptap-editor-content pre {
+    page-break-inside: avoid;
+    margin: 16px 0 !important;
+  }
+
+  /* Horizontal rules */
+  .tiptap-editor-content hr {
+    margin: 24px 0 !important;
+  }
+
+  /* Ensure links print with their URLs if needed (optional) */
+  .tiptap-editor-content a {
+    color: #1a73e8 !important;
+    text-decoration: underline !important;
+  }
+
+  /* Preserve text-indent for formatted paragraphs */
+  .tiptap-editor-content p[style*="text-indent"] {
+    text-indent: inherit !important;
+  }
+}
