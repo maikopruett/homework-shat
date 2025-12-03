@@ -336,6 +336,7 @@ const APA_TEMPLATE: EssayTemplate = {
 - References heading: Centered, Bold
 - Reference entries: Hanging indent (reverse indent)
 - In-text citations: (Author, Year) format
+- NEVER use bold text
 
 ### REQUIRED TOOL CALLS (in order):
 1. format_text with fontFamily="Times New Roman" and target="all"
@@ -388,6 +389,7 @@ const MLA_TEMPLATE: EssayTemplate = {
 - Works Cited heading: Centered, NOT bold (unlike APA)
 - Works Cited entries: Hanging indent
 - In-text citations: (Author Page) format, no comma
+- NEVER use bold text
 
 ### REQUIRED TOOL CALLS (in order):
 1. format_text with fontFamily="Times New Roman" and target="all"
@@ -1178,13 +1180,22 @@ const PROMPT_CONFIG = {
   bannedWords: `delve, innovative, captivating, leverage, multifaceted, comprehensive, crucial, foster, landscape, myriad, nuanced, paradigm, plethora, realm, robust, seamless, synergy, tapestry, underscore, utilize, vibrant, vital, pivotal, groundbreaking, cutting-edge, "game-changer", "at its core"`,
 
   // Workflow rules (applies to both modes)
-  workflow: `1. FIRST: Send a brief acknowledgement message about the users prompt.
-2. THEN: Call read_document before editing
-3. For citations: search_web, then write with real sources. Every in-text citation needs a Works Cited entry.
+  workflow: `## WORKFLOW RULES
+1. Send ONE brief acknowledgement (5-15 words max) at the very start
+2. Call read_document before any edits
+3. For citations: search_web first, then write with real sources
 4. For rewrites: clear_document first, then write_content
-5. Format AFTER writing content
-6. LAST: Send a brief summary of what you have done. (keep it short)
-7. NO status updates between steps. UI shows progress automatically.`,
+5. Format AFTER writing all content
+6. When completely finished, send ONE brief summary (10-30 words max)
+
+## CRITICAL: NO REPETITION
+- You will make MULTIPLE tool calls in sequence. Between tool calls, DO NOT output any text.
+- NEVER repeat your acknowledgement or restate what you're doing. The user already saw it.
+- NEVER say "I'll do X" multiple times. Say it ONCE at the start, then ONLY use tools silently.
+- After tools complete, give ONE final summary. That's it.
+- If you find yourself about to repeat something you already said, STOP and just use the next tool.
+
+TOTAL MESSAGES: Exactly 2. Opening acknowledgement + closing summary. Nothing in between.`,
 
   // Chat mode base rules
   chatModeRules: `You can see the document but CANNOT edit it. Suggest switching to Edit mode for changes.
