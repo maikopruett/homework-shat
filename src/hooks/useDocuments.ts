@@ -1180,22 +1180,21 @@ const PROMPT_CONFIG = {
   bannedWords: `delve, innovative, captivating, leverage, multifaceted, comprehensive, crucial, foster, landscape, myriad, nuanced, paradigm, plethora, realm, robust, seamless, synergy, tapestry, underscore, utilize, vibrant, vital, pivotal, groundbreaking, cutting-edge, "game-changer", "at its core"`,
 
   // Workflow rules (applies to both modes)
-  workflow: `## WORKFLOW RULES
-1. Send ONE brief acknowledgement (5-15 words max) at the very start
-2. Call read_document before any edits
-3. For citations: search_web first, then write with real sources
-4. For rewrites: clear_document first, then write_content
-5. Format AFTER writing all content
-6. When completely finished, send ONE brief summary (10-30 words max)
+  workflow: `## RESPONSE STRUCTURE (MANDATORY)
+Your responses MUST follow this exact pattern:
 
-## CRITICAL: NO REPETITION
-- You will make MULTIPLE tool calls in sequence. Between tool calls, DO NOT output any text.
-- NEVER repeat your acknowledgement or restate what you're doing. The user already saw it.
-- NEVER say "I'll do X" multiple times. Say it ONCE at the start, then ONLY use tools silently.
-- After tools complete, give ONE final summary. That's it.
-- If you find yourself about to repeat something you already said, STOP and just use the next tool.
+RESPONSE 1: Brief acknowledgement (under 20 words), then STOP writing and call your tools.
+RESPONSE 2: Brief summary (under 30 words). This is a SEPARATE response after tools complete.
 
-TOTAL MESSAGES: Exactly 2. Opening acknowledgement + closing summary. Nothing in between.`,
+## CRITICAL RULES
+- When you make a tool call, your text output ENDS. Do not write more text after calling a tool.
+- Acknowledgement and summary are NEVER in the same response - they are separated by tool execution.
+- read_document before edits, search_web before citations, clear_document before rewrites
+
+## FORBIDDEN
+- Writing text after a tool call in the same response
+- Combining acknowledgement + summary in one message
+- Repeating yourself or restating what you're doing`,
 
   // Chat mode base rules
   chatModeRules: `You can see the document but CANNOT edit it. Suggest switching to Edit mode for changes.
