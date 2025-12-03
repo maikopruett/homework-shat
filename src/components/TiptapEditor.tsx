@@ -149,9 +149,17 @@ const TextIndent = Extension.create({
         attributes: {
           textIndent: {
             default: null,
-            // Don't parse text-indent from HTML - only apply via commands
-            // This prevents accidental indentation from pasted/AI content
-            parseHTML: () => null,
+            parseHTML: element => {
+              // Try element.style first (for proper DOM elements)
+              const styleIndent = element.style?.textIndent;
+              if (styleIndent && styleIndent.length > 0) {
+                return styleIndent;
+              }
+              // Fallback: parse from style attribute string (for HTML string parsing)
+              const styleAttr = element.getAttribute?.('style') || '';
+              const match = styleAttr.match(/text-indent:\s*([^;]+)/i);
+              return match ? match[1].trim() : null;
+            },
             renderHTML: attributes => {
               if (!attributes.textIndent) {
                 return {};
@@ -169,14 +177,14 @@ const TextIndent = Extension.create({
   addCommands() {
     return {
       setTextIndent: (indent: string) => ({ commands }) => {
-        return this.options.types.every((type: string) => 
-          commands.updateAttributes(type, { textIndent: indent })
-        );
+        return this.options.types
+          .map((type: string) => commands.updateAttributes(type, { textIndent: indent }))
+          .some((response: boolean) => response);
       },
       unsetTextIndent: () => ({ commands }) => {
-        return this.options.types.every((type: string) => 
-          commands.updateAttributes(type, { textIndent: null })
-        );
+        return this.options.types
+          .map((type: string) => commands.resetAttributes(type, 'textIndent'))
+          .some((response: boolean) => response);
       },
     };
   },
@@ -332,9 +340,8 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
           // Handle Tab and Shift+Tab for indentation
           if (event.key === 'Tab') {
             event.preventDefault();
-            
-            const { state, dispatch } = view;
-            const { selection } = state;
+
+            const { state } = view;
             
             if (event.shiftKey) {
               // Shift+Tab: outdent
@@ -359,9 +366,12 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
                 editor.chain().focus().sinkListItem('listItem').run();
                 return true;
               }
-              // For regular text, insert a tab character
-              const tr = state.tr.insertText('\t', selection.from, selection.to);
-              dispatch(tr);
+              // For regular paragraphs/headings, apply text-indent
+              const currentNode = state.selection.$from.parent;
+              if (currentNode.type.name === 'paragraph' || currentNode.type.name === 'heading') {
+                editor?.chain().focus().setTextIndent('0.5in').run();
+                return true;
+              }
               return true;
             }
           }
