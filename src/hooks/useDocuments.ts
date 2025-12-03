@@ -1181,20 +1181,19 @@ const PROMPT_CONFIG = {
 
   // Workflow rules (applies to both modes)
   workflow: `<response_format>
-FIRST: One brief acknowledgement (under 10 words), then immediately call tools.
-LAST: One brief summary (under 20 words) after all tools complete.
+Call tools silently. After all tools complete, provide ONE brief summary (under 20 words).
+No acknowledgement before tools. No narration during tools. Just the final result.
 </response_format>
 
 <rules>
 - read_document before edits, search_web before citations, clear_document before rewrites
-- After acknowledgement: ONLY tool calls. No text whatsoever until the final summary.
+- Output ONLY the final summary after tools complete - nothing before or during
 </rules>
 
 <forbidden>
-DO NOT REPEAT YOURSELF. You get ONE acknowledgement, ONE summary. That's it.
-- No "Thinking...", "Proceeding...", "Let me...", or status narration
-- No restating what you're about to do after already acknowledging
-- No text output between or during tool calls
+- No "Got it", "Sure", "I'll", or any acknowledgement before tools
+- No "Thinking...", "Working...", "Proceeding..." status narration
+- No text output until all tool calls are complete
 </forbidden>`,
 
   // Chat mode base rules
@@ -2034,51 +2033,10 @@ CRITICAL INSTRUCTIONS:
           ));
         },
         onToolCallStart: () => {
-          // Tool calls are starting - finalize any text content as its own message
-          const currentContent = streamingChatRef.current.trim();
-          console.log('[Stream] Tool call starting, current content length:', currentContent.length);
-
-          if (currentContent) {
-            // Mark current message as done (this is the acknowledgement)
-            setDocuments(prev => prev.map(doc =>
-              doc.id === activeDocId
-                ? {
-                    ...doc,
-                    chatMessages: doc.chatMessages.map(m =>
-                      m.id === messageState.assistantId
-                        ? { ...m, content: currentContent, status: 'done' as const, statusDetail: undefined }
-                        : m
-                    ),
-                    updatedAt: Date.now()
-                  }
-                : doc
-            ));
-
-            // Create a new message for tool status and eventual summary
-            const newAssistantId = crypto.randomUUID();
-            messageState.assistantId = newAssistantId;
-            streamingChatRef.current = '';
-            messageState.firstTokenReceived = false;
-
-            const newAssistantMessage: DocChatMessage = {
-              id: newAssistantId,
-              role: 'assistant',
-              content: '',
-              timestamp: Date.now(),
-              status: 'thinking',
-              statusDetail: 'Working...',
-            };
-
-            setDocuments(prev => prev.map(doc =>
-              doc.id === activeDocId
-                ? {
-                    ...doc,
-                    chatMessages: [...doc.chatMessages, newAssistantMessage],
-                    updatedAt: Date.now()
-                  }
-                : doc
-            ));
-          }
+          // Tool calls are starting - reset streaming content, keep same message bubble
+          console.log('[Stream] Tool call starting, resetting content for summary');
+          streamingChatRef.current = '';
+          messageState.firstTokenReceived = false;
         },
         onToolCalls: async (toolCalls: ToolCall[]) => {
           console.log('[Stream] Tool calls received:', toolCalls.length);
@@ -2099,60 +2057,10 @@ CRITICAL INSTRUCTIONS:
           return toolResults;
         },
         onFollowUp: () => {
-          console.log('[Stream] Follow-up starting');
-          
-          // Check if current message has content
-          const currentContent = streamingChatRef.current.trim();
-          
-          if (currentContent) {
-            // Current message has content - mark it done and create a new message
-            console.log('[Stream] Current message has content, creating new bubble');
-            
-            setDocuments(prev => prev.map(doc => 
-              doc.id === activeDocId 
-                ? { 
-                    ...doc, 
-                    chatMessages: doc.chatMessages.map(m => 
-                      m.id === messageState.assistantId 
-                        ? { ...m, status: 'done' as const, statusDetail: undefined }
-                        : m
-                    ),
-                    updatedAt: Date.now() 
-                  }
-                : doc
-            ));
-            
-            // Create a new message for the follow-up response
-            const newAssistantId = crypto.randomUUID();
-            messageState.assistantId = newAssistantId;
-            streamingChatRef.current = '';
-            messageState.firstTokenReceived = false;
-            
-            const newAssistantMessage: DocChatMessage = {
-              id: newAssistantId,
-              role: 'assistant',
-              content: '',
-              timestamp: Date.now(),
-              status: 'thinking',
-              statusDetail: 'Working...',
-            };
-            
-            setDocuments(prev => prev.map(doc => 
-              doc.id === activeDocId 
-                ? { 
-                    ...doc, 
-                    chatMessages: [...doc.chatMessages, newAssistantMessage],
-                    updatedAt: Date.now() 
-                  }
-                : doc
-            ));
-          } else {
-            // Current message has no content - just reset and continue using it
-            // Don't update status here - let the tool execution status updates come through
-            console.log('[Stream] Current message is empty, reusing same bubble');
-            streamingChatRef.current = '';
-            messageState.firstTokenReceived = false;
-          }
+          // Follow-up after tool execution - reset content for summary, keep same bubble
+          console.log('[Stream] Follow-up starting, resetting content for summary');
+          streamingChatRef.current = '';
+          messageState.firstTokenReceived = false;
         },
         onComplete: async () => {
           console.log('[Stream] onComplete called');
