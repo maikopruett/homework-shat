@@ -1180,21 +1180,22 @@ const PROMPT_CONFIG = {
   bannedWords: `delve, innovative, captivating, leverage, multifaceted, comprehensive, crucial, foster, landscape, myriad, nuanced, paradigm, plethora, realm, robust, seamless, synergy, tapestry, underscore, utilize, vibrant, vital, pivotal, groundbreaking, cutting-edge, "game-changer", "at its core"`,
 
   // Workflow rules (applies to both modes)
-  workflow: `## RESPONSE STRUCTURE (MANDATORY)
-Your responses MUST follow this exact pattern:
+  workflow: `<response_format>
+FIRST: One brief acknowledgement (under 10 words), then immediately call tools.
+LAST: One brief summary (under 20 words) after all tools complete.
+</response_format>
 
-RESPONSE 1: Brief acknowledgement (under 20 words), then STOP writing and call your tools.
-RESPONSE 2: Brief summary (under 30 words). This is a SEPARATE response after tools complete.
-
-## CRITICAL RULES
-- When you make a tool call, your text output ENDS. Do not write more text after calling a tool.
-- Acknowledgement and summary are NEVER in the same response - they are separated by tool execution.
+<rules>
 - read_document before edits, search_web before citations, clear_document before rewrites
+- After acknowledgement: ONLY tool calls. No text whatsoever until the final summary.
+</rules>
 
-## FORBIDDEN
-- Writing text after a tool call in the same response
-- Combining acknowledgement + summary in one message
-- Repeating yourself or restating what you're doing`,
+<forbidden>
+DO NOT REPEAT YOURSELF. You get ONE acknowledgement, ONE summary. That's it.
+- No "Thinking...", "Proceeding...", "Let me...", or status narration
+- No restating what you're about to do after already acknowledging
+- No text output between or during tool calls
+</forbidden>`,
 
   // Chat mode base rules
   chatModeRules: `You can see the document but CANNOT edit it. Suggest switching to Edit mode for changes.
@@ -2032,22 +2033,69 @@ CRITICAL INSTRUCTIONS:
               : doc
           ));
         },
+        onToolCallStart: () => {
+          // Tool calls are starting - finalize any text content as its own message
+          const currentContent = streamingChatRef.current.trim();
+          console.log('[Stream] Tool call starting, current content length:', currentContent.length);
+
+          if (currentContent) {
+            // Mark current message as done (this is the acknowledgement)
+            setDocuments(prev => prev.map(doc =>
+              doc.id === activeDocId
+                ? {
+                    ...doc,
+                    chatMessages: doc.chatMessages.map(m =>
+                      m.id === messageState.assistantId
+                        ? { ...m, content: currentContent, status: 'done' as const, statusDetail: undefined }
+                        : m
+                    ),
+                    updatedAt: Date.now()
+                  }
+                : doc
+            ));
+
+            // Create a new message for tool status and eventual summary
+            const newAssistantId = crypto.randomUUID();
+            messageState.assistantId = newAssistantId;
+            streamingChatRef.current = '';
+            messageState.firstTokenReceived = false;
+
+            const newAssistantMessage: DocChatMessage = {
+              id: newAssistantId,
+              role: 'assistant',
+              content: '',
+              timestamp: Date.now(),
+              status: 'thinking',
+              statusDetail: 'Working...',
+            };
+
+            setDocuments(prev => prev.map(doc =>
+              doc.id === activeDocId
+                ? {
+                    ...doc,
+                    chatMessages: [...doc.chatMessages, newAssistantMessage],
+                    updatedAt: Date.now()
+                  }
+                : doc
+            ));
+          }
+        },
         onToolCalls: async (toolCalls: ToolCall[]) => {
           console.log('[Stream] Tool calls received:', toolCalls.length);
-          
+
           // Execute each tool call and collect results
           const toolResults: ChatMessage[] = [];
           for (const toolCall of toolCalls) {
             const result = await executeToolCall(toolCall, messageState.assistantId, currentDate);
             toolResults.push(result);
           }
-          
+
           // Update status after searches complete
           const hadSearches = toolCalls.some(tc => tc.function.name === 'search_web');
           if (hadSearches) {
             updateMessageStatus(messageState.assistantId, 'thinking', 'Research done');
           }
-          
+
           return toolResults;
         },
         onFollowUp: () => {

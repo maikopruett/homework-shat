@@ -64,6 +64,7 @@ export interface StreamCallbacks {
   onToken: (token: string) => void;
   onToolCalls?: (toolCalls: ToolCall[]) => Promise<ChatMessage[]>; // Returns tool results
   onFollowUp?: () => void; // Called before making a follow-up call after tool execution - allows creating new message
+  onToolCallStart?: () => void; // Called when first tool call is detected - signals end of text before tools
   onComplete: (metrics: StreamMetrics) => void | Promise<void>;
   onError: (error: Error) => void | Promise<void>;
 }
@@ -191,6 +192,7 @@ export async function sendMessageStream(
     const accumulatedToolCalls = new Map<number, ToolCall>();
     let finishReason: string | null = null;
     let accumulatedContent = '';
+    let toolCallStartSignaled = false; // Track if we've signaled tool call start
 
     while (true) {
       // Add timeout to stream reads to prevent infinite hangs
@@ -246,14 +248,24 @@ export async function sendMessageStream(
               // Handle tool call deltas (streaming format)
               const toolCallDeltas = choice.delta?.tool_calls;
               if (toolCallDeltas && Array.isArray(toolCallDeltas)) {
+                // Signal that tool calls are starting (text output should be finalized)
+                if (!toolCallStartSignaled && callbacks.onToolCallStart) {
+                  toolCallStartSignaled = true;
+                  callbacks.onToolCallStart();
+                }
                 for (const delta of toolCallDeltas) {
                   accumulateToolCallDelta(accumulatedToolCalls, delta);
                 }
               }
-              
+
               // Handle non-delta tool calls (some models return full tool calls in message)
               const messageToolCalls = choice.message?.tool_calls;
               if (messageToolCalls && Array.isArray(messageToolCalls)) {
+                // Signal that tool calls are starting (text output should be finalized)
+                if (!toolCallStartSignaled && callbacks.onToolCallStart) {
+                  toolCallStartSignaled = true;
+                  callbacks.onToolCallStart();
+                }
                 for (let i = 0; i < messageToolCalls.length; i++) {
                   const tc = messageToolCalls[i];
                   if (tc.id && tc.function?.name) {
