@@ -457,21 +457,317 @@ ${html}
   const downloadAsDocx = async () => {
     const html = editorRef.current?.getHTML() || '';
     const title = getDocumentTitle();
-    
-    const wordDoc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<?mso-application progid="Word.Document"?>
-<w:wordDocument xmlns:w="http://schemas.microsoft.com/office/word/2003/wordml">
+
+    // Parse HTML and convert to OOXML paragraphs
+    const tempDiv = window.document.createElement('div');
+    tempDiv.innerHTML = html;
+
+    const escapeXml = (text: string) => {
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+
+    // Convert HTML node to OOXML
+    const processNode = (node: Node): string => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent || '';
+        if (!text) return '';
+        return `<w:r><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`;
+      }
+
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as HTMLElement;
+        const tagName = el.tagName.toLowerCase();
+        const children = Array.from(el.childNodes).map(processNode).join('');
+
+        // Get inline styles
+        const style = el.getAttribute('style') || '';
+        const isBold = tagName === 'strong' || tagName === 'b' || style.includes('font-weight: 700') || style.includes('font-weight: bold');
+        const isItalic = tagName === 'em' || tagName === 'i' || style.includes('font-style: italic');
+        const isUnderline = tagName === 'u' || style.includes('text-decoration: underline');
+        const isStrike = tagName === 's' || tagName === 'strike' || style.includes('text-decoration: line-through');
+
+        // Build run properties
+        let rPr = '';
+        if (isBold) rPr += '<w:b/>';
+        if (isItalic) rPr += '<w:i/>';
+        if (isUnderline) rPr += '<w:u w:val="single"/>';
+        if (isStrike) rPr += '<w:strike/>';
+
+        // Check for font family
+        const fontMatch = style.match(/font-family:\s*([^;]+)/);
+        if (fontMatch) {
+          const fontName = fontMatch[1].replace(/['"]/g, '').split(',')[0].trim();
+          rPr += `<w:rFonts w:ascii="${escapeXml(fontName)}" w:hAnsi="${escapeXml(fontName)}"/>`;
+        }
+
+        // Check for font size (convert pt to half-points)
+        const sizeMatch = style.match(/font-size:\s*(\d+(?:\.\d+)?)(pt|px)/);
+        if (sizeMatch) {
+          let size = parseFloat(sizeMatch[1]);
+          if (sizeMatch[2] === 'px') size = size * 0.75; // px to pt
+          const halfPoints = Math.round(size * 2);
+          rPr += `<w:sz w:val="${halfPoints}"/><w:szCs w:val="${halfPoints}"/>`;
+        }
+
+        // Check for text color
+        const colorMatch = style.match(/(?:^|;)\s*color:\s*([^;]+)/);
+        if (colorMatch) {
+          let color = colorMatch[1].trim();
+          if (color.startsWith('#')) {
+            color = color.slice(1).toUpperCase();
+            if (color.length === 3) {
+              color = color.split('').map(c => c + c).join('');
+            }
+            rPr += `<w:color w:val="${color}"/>`;
+          }
+        }
+
+        // Get paragraph properties
+        let pPr = '';
+        const textAlign = style.match(/text-align:\s*(\w+)/);
+        if (textAlign) {
+          const alignMap: Record<string, string> = { left: 'left', center: 'center', right: 'right', justify: 'both' };
+          pPr += `<w:jc w:val="${alignMap[textAlign[1]] || 'left'}"/>`;
+        }
+        const textIndent = style.match(/text-indent:\s*([\d.]+)(in|cm|px|pt|em)/);
+        if (textIndent) {
+          let indent = parseFloat(textIndent[1]);
+          // Convert to twips (1 inch = 1440 twips)
+          if (textIndent[2] === 'in') indent = indent * 1440;
+          else if (textIndent[2] === 'cm') indent = indent * 567;
+          else if (textIndent[2] === 'pt') indent = indent * 20;
+          else if (textIndent[2] === 'px') indent = indent * 15;
+          else if (textIndent[2] === 'em') indent = indent * 240; // approximate
+          pPr += `<w:ind w:firstLine="${Math.round(indent)}"/>`;
+        }
+
+        switch (tagName) {
+          case 'p': {
+            const pPrBlock = pPr ? `<w:pPr>${pPr}</w:pPr>` : '';
+            return `<w:p>${pPrBlock}${children}</w:p>`;
+          }
+          case 'h1':
+            return `<w:p><w:pPr><w:pStyle w:val="Heading1"/>${pPr}</w:pPr>${children}</w:p>`;
+          case 'h2':
+            return `<w:p><w:pPr><w:pStyle w:val="Heading2"/>${pPr}</w:pPr>${children}</w:p>`;
+          case 'h3':
+            return `<w:p><w:pPr><w:pStyle w:val="Heading3"/>${pPr}</w:pPr>${children}</w:p>`;
+          case 'h4':
+          case 'h5':
+          case 'h6':
+            return `<w:p><w:pPr><w:pStyle w:val="Heading${tagName.slice(1)}"/>${pPr}</w:pPr>${children}</w:p>`;
+          case 'br':
+            return '<w:r><w:br/></w:r>';
+          case 'strong':
+          case 'b':
+          case 'em':
+          case 'i':
+          case 'u':
+          case 's':
+          case 'strike':
+          case 'span': {
+            // Wrap text nodes with formatting
+            if (rPr && el.childNodes.length > 0) {
+              let result = '';
+              for (const child of Array.from(el.childNodes)) {
+                if (child.nodeType === Node.TEXT_NODE) {
+                  const text = child.textContent || '';
+                  if (text) {
+                    result += `<w:r><w:rPr>${rPr}</w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`;
+                  }
+                } else {
+                  result += processNode(child);
+                }
+              }
+              return result;
+            }
+            return children;
+          }
+          case 'ul':
+          case 'ol':
+            return children;
+          case 'li': {
+            const parentTag = el.parentElement?.tagName.toLowerCase();
+            const numId = parentTag === 'ol' ? '2' : '1';
+            return `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="${numId}"/></w:numPr></w:pPr>${children}</w:p>`;
+          }
+          case 'blockquote':
+            return `<w:p><w:pPr><w:pStyle w:val="Quote"/></w:pPr>${children}</w:p>`;
+          case 'a': {
+            // For simplicity, just render as underlined blue text
+            return `<w:r><w:rPr><w:color w:val="0000FF"/><w:u w:val="single"/></w:rPr><w:t xml:space="preserve">${escapeXml(el.textContent || '')}</w:t></w:r>`;
+          }
+          case 'hr':
+            return '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/></w:pBdr></w:pPr></w:p>';
+          default:
+            return children;
+        }
+      }
+      return '';
+    };
+
+    const documentContent = processNode(tempDiv);
+
+    // Create minimal DOCX structure
+    const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+</Types>`;
+
+    const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+    const documentRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
+</Relationships>`;
+
+    const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:styleId="Normal" w:default="1"><w:name w:val="Normal"/></w:style>
+  <w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="Heading 1"/><w:basedOn w:val="Normal"/><w:rPr><w:b/><w:sz w:val="56"/></w:rPr></w:style>
+  <w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="Heading 2"/><w:basedOn w:val="Normal"/><w:rPr><w:b/><w:sz w:val="42"/></w:rPr></w:style>
+  <w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="Heading 3"/><w:basedOn w:val="Normal"/><w:rPr><w:b/><w:sz w:val="32"/></w:rPr></w:style>
+  <w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="720"/></w:pPr><w:rPr><w:i/><w:color w:val="5f6368"/></w:rPr></w:style>
+</w:styles>`;
+
+    const numbering = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:abstractNum w:abstractNumId="0">
+    <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>
+  </w:abstractNum>
+  <w:abstractNum w:abstractNumId="1">
+    <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>
+  </w:abstractNum>
+  <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
+  <w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>
+</w:numbering>`;
+
+    const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
-    <w:p>
-      <w:r>
-        <w:t>${html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()}</w:t>
-      </w:r>
-    </w:p>
+    ${documentContent || '<w:p><w:r><w:t></w:t></w:r></w:p>'}
   </w:body>
-</w:wordDocument>`;
-    
-    const blob = new Blob([wordDoc], { type: 'application/vnd.ms-word' });
-    downloadBlob(blob, `${title}.doc`);
+</w:document>`;
+
+    // Build ZIP file manually (minimal implementation)
+    const encoder = new TextEncoder();
+    const files: { name: string; data: Uint8Array }[] = [
+      { name: '[Content_Types].xml', data: encoder.encode(contentTypes) },
+      { name: '_rels/.rels', data: encoder.encode(rels) },
+      { name: 'word/_rels/document.xml.rels', data: encoder.encode(documentRels) },
+      { name: 'word/document.xml', data: encoder.encode(documentXml) },
+      { name: 'word/styles.xml', data: encoder.encode(styles) },
+      { name: 'word/numbering.xml', data: encoder.encode(numbering) },
+    ];
+
+    // Create ZIP using compression streams if available, otherwise use a simple store method
+    const createZip = async (files: { name: string; data: Uint8Array }[]): Promise<Blob> => {
+      const parts: Uint8Array[] = [];
+      const centralDirectory: Uint8Array[] = [];
+      let offset = 0;
+
+      const crc32 = (data: Uint8Array): number => {
+        let crc = 0xffffffff;
+        const table = new Uint32Array(256);
+        for (let i = 0; i < 256; i++) {
+          let c = i;
+          for (let j = 0; j < 8; j++) {
+            c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+          }
+          table[i] = c;
+        }
+        for (let i = 0; i < data.length; i++) {
+          crc = table[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
+        }
+        return (crc ^ 0xffffffff) >>> 0;
+      };
+
+      for (const file of files) {
+        const nameBytes = encoder.encode(file.name);
+        const crc = crc32(file.data);
+
+        // Local file header
+        const localHeader = new Uint8Array(30 + nameBytes.length);
+        const view = new DataView(localHeader.buffer);
+        view.setUint32(0, 0x04034b50, true); // signature
+        view.setUint16(4, 20, true); // version needed
+        view.setUint16(6, 0, true); // flags
+        view.setUint16(8, 0, true); // compression (store)
+        view.setUint16(10, 0, true); // mod time
+        view.setUint16(12, 0, true); // mod date
+        view.setUint32(14, crc, true); // crc32
+        view.setUint32(18, file.data.length, true); // compressed size
+        view.setUint32(22, file.data.length, true); // uncompressed size
+        view.setUint16(26, nameBytes.length, true); // name length
+        view.setUint16(28, 0, true); // extra length
+        localHeader.set(nameBytes, 30);
+
+        // Central directory entry
+        const centralEntry = new Uint8Array(46 + nameBytes.length);
+        const centralView = new DataView(centralEntry.buffer);
+        centralView.setUint32(0, 0x02014b50, true); // signature
+        centralView.setUint16(4, 20, true); // version made by
+        centralView.setUint16(6, 20, true); // version needed
+        centralView.setUint16(8, 0, true); // flags
+        centralView.setUint16(10, 0, true); // compression
+        centralView.setUint16(12, 0, true); // mod time
+        centralView.setUint16(14, 0, true); // mod date
+        centralView.setUint32(16, crc, true); // crc32
+        centralView.setUint32(20, file.data.length, true); // compressed size
+        centralView.setUint32(24, file.data.length, true); // uncompressed size
+        centralView.setUint16(28, nameBytes.length, true); // name length
+        centralView.setUint16(30, 0, true); // extra length
+        centralView.setUint16(32, 0, true); // comment length
+        centralView.setUint16(34, 0, true); // disk start
+        centralView.setUint16(36, 0, true); // internal attrs
+        centralView.setUint32(38, 0, true); // external attrs
+        centralView.setUint32(42, offset, true); // local header offset
+        centralEntry.set(nameBytes, 46);
+
+        parts.push(localHeader);
+        parts.push(file.data);
+        centralDirectory.push(centralEntry);
+        offset += localHeader.length + file.data.length;
+      }
+
+      const centralDirOffset = offset;
+      let centralDirSize = 0;
+      for (const entry of centralDirectory) {
+        parts.push(entry);
+        centralDirSize += entry.length;
+      }
+
+      // End of central directory
+      const endRecord = new Uint8Array(22);
+      const endView = new DataView(endRecord.buffer);
+      endView.setUint32(0, 0x06054b50, true); // signature
+      endView.setUint16(4, 0, true); // disk number
+      endView.setUint16(6, 0, true); // central dir disk
+      endView.setUint16(8, files.length, true); // entries on disk
+      endView.setUint16(10, files.length, true); // total entries
+      endView.setUint32(12, centralDirSize, true); // central dir size
+      endView.setUint32(16, centralDirOffset, true); // central dir offset
+      endView.setUint16(20, 0, true); // comment length
+      parts.push(endRecord);
+
+      return new Blob(parts as BlobPart[], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    };
+
+    const blob = await createZip(files);
+    downloadBlob(blob, `${title}.docx`);
     setFileMenuOpen(false);
     setDownloadMenuOpen(false);
   };
