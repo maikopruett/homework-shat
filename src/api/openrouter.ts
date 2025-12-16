@@ -10,7 +10,7 @@ export interface ModelInfo {
 }
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
-  { id: 'anthropic/claude-haiku-4.5', name: 'Claude Haiku 4.5', provider: 'Anthropic', isBest: true },
+  { id: 'anthropic/claude-haiku-4.5', name: 'Haiku 4.5', provider: 'Anthropic', isBest: true },
   { id: 'x-ai/grok-4-fast', name: 'Grok 4 Fast', provider: 'xAI', isFastest: true, isDefault: true },
 ];
 
