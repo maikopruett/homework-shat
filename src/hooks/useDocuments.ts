@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { sendMessageStream, DEFAULT_MODEL } from '../api/openrouter';
+import { sendMessageStream, generateTitle, DEFAULT_MODEL } from '../api/openrouter';
 import type { ChatMessage, ToolDefinition, ToolCall } from '../api/openrouter';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
 import { searchExa, formatSearchResultsForAI, type SearchResult } from '../api/exa';
@@ -28,6 +28,10 @@ export interface PersonaSettings {
   documentName: string;
   documentContent: string;
   profileImage: string | null; // Base64 data URL
+  firstName: string;
+  lastName: string;
+  teacherName: string;
+  className: string;
 }
 
 export interface EssayTemplate {
@@ -1220,10 +1224,30 @@ const CHAT_MODE_SYSTEM_PROMPT = `You're a writing assistant in chat-only mode. $
 
 No AI buzzwords (${PROMPT_CONFIG.bannedWords.split(', ').slice(0, 5).join(', ')}, etc.).`;
 
+// Helper to build student info section for prompts
+function buildStudentInfoSection(persona: PersonaSettings): string {
+  const hasStudentInfo = persona.firstName || persona.lastName || persona.teacherName || persona.className;
+  if (!hasStudentInfo) return '';
+
+  const fullName = `${persona.firstName || ''} ${persona.lastName || ''}`.trim();
+  let section = '\n## Student Information\n';
+  section += `- Student Name: ${fullName || '[Your Name]'}\n`;
+  if (persona.teacherName) {
+    section += `- Teacher/Professor: ${persona.teacherName}\n`;
+  }
+  if (persona.className) {
+    section += `- Class: ${persona.className}\n`;
+  }
+  section += '\nWhen writing essays, use this student\'s actual name and class information instead of placeholders.\n';
+  return section;
+}
+
 // Function to generate persona-aware system prompt
 function generatePersonaSystemPrompt(persona: PersonaSettings): string {
-  return `You are a document editor that writes EXACTLY like the person below. Mimic their vocabulary, sentence patterns, tone, punctuation, and structure precisely.
+  const studentInfo = buildStudentInfoSection(persona);
 
+  return `You are a document editor that writes EXACTLY like the person below. Mimic their vocabulary, sentence patterns, tone, punctuation, and structure precisely.
+${studentInfo}
 ## Reference Document (mimic this style):
 ${persona.documentContent}
 
@@ -1238,8 +1262,10 @@ ${PROMPT_CONFIG.workflow}`;
 
 // Function to generate persona-aware chat mode prompt
 function generatePersonaChatPrompt(persona: PersonaSettings): string {
-  return `Chat-only mode. ${PROMPT_CONFIG.chatModeRules}
+  const studentInfo = buildStudentInfoSection(persona);
 
+  return `Chat-only mode. ${PROMPT_CONFIG.chatModeRules}
+${studentInfo}
 Communicate in the style of this reference document:
 ${persona.documentContent}
 
@@ -1876,17 +1902,9 @@ export function useDocuments() {
       return;
     }
 
-    // Auto-generate title if document is untitled and this is the first message
-    if (activeDocument.title === 'Untitled document' && activeDocument.chatMessages.length === 0) {
-      const generatedTitle = generateTitleFromMessage(content);
-      if (generatedTitle !== 'Untitled document') {
-        setDocuments(prev => prev.map(doc => 
-          doc.id === activeDocId 
-            ? { ...doc, title: generatedTitle, updatedAt: Date.now() }
-            : doc
-        ));
-      }
-    }
+    // Track if we need to generate a title after completion
+    const shouldGenerateTitle = activeDocument.title === 'Untitled document' && activeDocument.chatMessages.length === 0;
+    const originalUserMessage = content.trim();
 
     // Store editor ref for use in callbacks
     editorRefStore.current = editorRef.current;
@@ -2067,11 +2085,13 @@ CRITICAL INSTRUCTIONS:
           try {
             // Save final document content
             console.log('[Stream] Saving final document content');
+            let documentTextContent = '';
             try {
               if (editorRefStore.current) {
                 const finalContent = editorRefStore.current.getHTML();
-                setDocuments(prev => prev.map(doc => 
-                  doc.id === activeDocId 
+                documentTextContent = editorRefStore.current.getText();
+                setDocuments(prev => prev.map(doc =>
+                  doc.id === activeDocId
                     ? { ...doc, content: finalContent, updatedAt: Date.now() }
                     : doc
                 ));
@@ -2079,23 +2099,50 @@ CRITICAL INSTRUCTIONS:
             } catch (editorErr) {
               console.error('[Stream] Error saving document content:', editorErr);
             }
-            
+
             // Mark complete
             console.log('[Stream] Marking complete');
             const finalContent = streamingChatRef.current.trim();
-            setDocuments(prev => prev.map(doc => 
-              doc.id === activeDocId 
-                ? { 
-                    ...doc, 
-                    chatMessages: doc.chatMessages.map(m => 
-                      m.id === messageState.assistantId 
+            setDocuments(prev => prev.map(doc =>
+              doc.id === activeDocId
+                ? {
+                    ...doc,
+                    chatMessages: doc.chatMessages.map(m =>
+                      m.id === messageState.assistantId
                         ? { ...m, content: finalContent, status: 'done' as const, statusDetail: undefined }
                         : m
                     ),
-                    updatedAt: Date.now() 
+                    updatedAt: Date.now()
                   }
                 : doc
             ));
+
+            // Generate AI title if this was the first message and document has content
+            if (shouldGenerateTitle && documentTextContent.trim()) {
+              console.log('[Stream] Generating AI title for document');
+              try {
+                const aiTitle = await generateTitle(originalUserMessage, documentTextContent);
+                if (aiTitle && aiTitle !== 'Untitled Document') {
+                  setDocuments(prev => prev.map(doc =>
+                    doc.id === activeDocId
+                      ? { ...doc, title: aiTitle, updatedAt: Date.now() }
+                      : doc
+                  ));
+                  console.log('[Stream] AI title generated:', aiTitle);
+                }
+              } catch (titleErr) {
+                console.error('[Stream] Error generating AI title:', titleErr);
+                // Fallback to simple title extraction
+                const fallbackTitle = generateTitleFromMessage(originalUserMessage);
+                if (fallbackTitle !== 'Untitled document') {
+                  setDocuments(prev => prev.map(doc =>
+                    doc.id === activeDocId
+                      ? { ...doc, title: fallbackTitle, updatedAt: Date.now() }
+                      : doc
+                  ));
+                }
+              }
+            }
           } catch (err) {
             console.error('[Stream] Error in onComplete handler:', err);
           } finally {

@@ -108,6 +108,10 @@ export default function GoogleDocsUI({
   const [personaDocContent, setPersonaDocContent] = useState<string | null>(null);
   const [personaUploadError, setPersonaUploadError] = useState<string | null>(null);
   const [isDraggingPersonaFile, setIsDraggingPersonaFile] = useState(false);
+  const [personaFirstName, setPersonaFirstName] = useState<string>('');
+  const [personaLastName, setPersonaLastName] = useState<string>('');
+  const [personaTeacherName, setPersonaTeacherName] = useState<string>('');
+  const [personaClassName, setPersonaClassName] = useState<string>('');
   const [isImportingDocument, setIsImportingDocument] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [pendingImportContent, setPendingImportContent] = useState<string | null>(null);
@@ -1066,6 +1070,10 @@ ${html}
         documentName: personaSettings?.documentName || '',
         documentContent: personaSettings?.documentContent || '',
         profileImage: base64,
+        firstName: personaSettings?.firstName || '',
+        lastName: personaSettings?.lastName || '',
+        teacherName: personaSettings?.teacherName || '',
+        className: personaSettings?.className || '',
       });
     };
     reader.readAsDataURL(file);
@@ -1164,6 +1172,10 @@ ${html}
   const openPersonaModal = useCallback(() => {
     setPersonaDocName(personaSettings?.documentName || null);
     setPersonaDocContent(personaSettings?.documentContent || null);
+    setPersonaFirstName(personaSettings?.firstName || '');
+    setPersonaLastName(personaSettings?.lastName || '');
+    setPersonaTeacherName(personaSettings?.teacherName || '');
+    setPersonaClassName(personaSettings?.className || '');
     setPersonaUploadError(null);
     setPersonaModalOpen(true);
     setProfileMenuOpen(false);
@@ -1171,15 +1183,22 @@ ${html}
 
   // Save persona settings
   const savePersonaSettings = useCallback(() => {
-    if (personaDocName && personaDocContent) {
+    const hasDocument = personaDocName && personaDocContent;
+    const hasStudentInfo = personaFirstName.trim() || personaLastName.trim();
+
+    if (hasDocument || hasStudentInfo) {
       onUpdatePersona({
-        documentName: personaDocName,
-        documentContent: personaDocContent,
+        documentName: personaDocName || '',
+        documentContent: personaDocContent || '',
         profileImage: personaSettings?.profileImage || null,
+        firstName: personaFirstName.trim(),
+        lastName: personaLastName.trim(),
+        teacherName: personaTeacherName.trim(),
+        className: personaClassName.trim(),
       });
     }
     setPersonaModalOpen(false);
-  }, [personaDocName, personaDocContent, personaSettings, onUpdatePersona]);
+  }, [personaDocName, personaDocContent, personaSettings, onUpdatePersona, personaFirstName, personaLastName, personaTeacherName, personaClassName]);
 
   // Remove persona
   const removePersona = useCallback(() => {
@@ -1187,9 +1206,17 @@ ${html}
       documentName: '',
       documentContent: '',
       profileImage: personaSettings?.profileImage || null,
+      firstName: '',
+      lastName: '',
+      teacherName: '',
+      className: '',
     });
     setPersonaDocName(null);
     setPersonaDocContent(null);
+    setPersonaFirstName('');
+    setPersonaLastName('');
+    setPersonaTeacherName('');
+    setPersonaClassName('');
     setPersonaModalOpen(false);
   }, [personaSettings, onUpdatePersona]);
 
@@ -2325,7 +2352,7 @@ ${html}
               <p className="text-[10px] text-gray-400">Software Engineer / Lord and Savior</p>
             </div>
             <a href="https://www.buymeacoffee.com/maikopruett"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=maikopruett&button_colour=FFDD00&font_colour=000000&font_family=Poppins&outline_colour=000000&coffee_colour=ffffff" /></a>
-            <p className="text-[10px] pt-3 text-gray-400">Version 0.7</p>
+            <p className="text-[10px] pt-3 text-gray-400">Version 0.8</p>
           </div>
         )}
       </div>
@@ -2356,11 +2383,65 @@ ${html}
             </div>
             
             {/* Content */}
-            <div className="px-6 py-5">
-              <p className="text-sm text-gray-600 mb-4">
-                Upload a document that represents your writing style. The AI will analyze it and mimic how you write.
-              </p>
-              
+            <div className="px-6 py-5 max-h-[70vh] overflow-y-auto">
+              {/* Student Information Section */}
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-gray-900 mb-3">Your Information</h3>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">First Name</label>
+                    <input
+                      type="text"
+                      value={personaFirstName}
+                      onChange={(e) => setPersonaFirstName(e.target.value)}
+                      placeholder="John"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Last Name</label>
+                    <input
+                      type="text"
+                      value={personaLastName}
+                      onChange={(e) => setPersonaLastName(e.target.value)}
+                      placeholder="Smith"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                <div className="mb-3">
+                  <label className="block text-xs text-gray-600 mb-1">Teacher/Professor <span className="text-gray-400">(optional)</span></label>
+                  <input
+                    type="text"
+                    value={personaTeacherName}
+                    onChange={(e) => setPersonaTeacherName(e.target.value)}
+                    placeholder="Mrs. Johnson"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">Class Name <span className="text-gray-400">(optional)</span></label>
+                  <input
+                    type="text"
+                    value={personaClassName}
+                    onChange={(e) => setPersonaClassName(e.target.value)}
+                    placeholder="English 101"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="border-t border-gray-200 my-5"></div>
+
+              {/* Writing Style Section */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-900 mb-2">Writing Style Reference</h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Upload a document that represents your writing style. The AI will analyze it and mimic how you write.
+                </p>
+              </div>
+
               {/* Upload Zone */}
               <div 
                 className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer ${
@@ -2452,8 +2533,8 @@ ${html}
             {/* Footer */}
             <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
               <div>
-                {(personaSettings?.documentContent || personaDocName) && (
-                  <button 
+                {(personaSettings?.documentContent || personaSettings?.firstName || personaSettings?.lastName || personaDocName || personaFirstName.trim() || personaLastName.trim()) && (
+                  <button
                     className="text-sm text-red-600 hover:text-red-700 font-medium"
                     onClick={removePersona}
                   >
@@ -2462,20 +2543,20 @@ ${html}
                 )}
               </div>
               <div className="flex items-center gap-3">
-                <button 
+                <button
                   className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
                   onClick={() => setPersonaModalOpen(false)}
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors ${
-                    personaDocName && personaDocContent
+                    (personaDocName && personaDocContent) || personaFirstName.trim() || personaLastName.trim()
                       ? 'bg-blue-600 hover:bg-blue-700'
                       : 'bg-gray-300 cursor-not-allowed'
                   }`}
                   onClick={savePersonaSettings}
-                  disabled={!personaDocName || !personaDocContent}
+                  disabled={!((personaDocName && personaDocContent) || personaFirstName.trim() || personaLastName.trim())}
                 >
                   Save persona
                 </button>

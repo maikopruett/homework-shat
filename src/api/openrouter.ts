@@ -12,6 +12,7 @@ export interface ModelInfo {
 export const AVAILABLE_MODELS: ModelInfo[] = [
   { id: 'anthropic/claude-haiku-4.5', name: 'Haiku 4.5', provider: 'Anthropic', isBest: true },
   { id: 'x-ai/grok-4-fast', name: 'Grok 4 Fast', provider: 'xAI', isFastest: true, isDefault: true },
+  { id: 'minimax/minimax-m1', name: 'MiniMax', provider: 'MiniMaxAI'},
 ];
 
 export const DEFAULT_MODEL = AVAILABLE_MODELS.find(m => m.isDefault)?.id || AVAILABLE_MODELS[0].id;
@@ -356,5 +357,56 @@ export async function sendMessageStream(
     console.log('[API] Error caught, calling onError', { name: error.name, message: error.message });
     await Promise.resolve(callbacks.onError(error));
     console.log('[API] onError finished');
+  }
+}
+
+// Simple non-streaming API call for generating titles
+export async function generateTitle(userMessage: string, documentContent: string): Promise<string> {
+  const systemPrompt = `You are a title generator. Based on the user's request and the document content that was written, generate a short, descriptive title (2-5 words) for the document.
+
+Rules:
+- Output ONLY the title, nothing else
+- No quotes, no punctuation at the end
+- Capitalize like a title (first letter of major words)
+- Be specific and descriptive
+- If it's an essay, include the main topic
+- Examples: "Climate Change Essay", "Romeo and Juliet Analysis", "Civil War Research Paper"`;
+
+  const userPrompt = `User's request: "${userMessage}"
+
+Document content (first 500 chars): "${documentContent.slice(0, 500)}"
+
+Generate a title:`;
+
+  try {
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'x-ai/grok-4-fast', // Use fast model for quick title generation
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 20,
+        temperature: 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const title = data.choices?.[0]?.message?.content?.trim() || '';
+
+    // Clean up the title - remove quotes and extra punctuation
+    return title
+      .replace(/^["']|["']$/g, '') // Remove surrounding quotes
+      .replace(/[.!?]+$/, '') // Remove trailing punctuation
+      .trim() || 'Untitled Document';
+  } catch (error) {
+    console.error('[API] Title generation failed:', error);
+    return 'Untitled Document';
   }
 }
