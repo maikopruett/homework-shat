@@ -32,6 +32,15 @@ npm run lint
 
 # Deploy to Cloudflare Pages
 npx wrangler deploy
+
+## btca
+
+Trigger: user says "use btca" (for codebase/docs questions).
+
+Run:
+- btca ask -t <tech> -q "<question>"
+
+Available <tech>: tailwindcss, react, opencode, effect
 ```
 
 ### Environment Setup
