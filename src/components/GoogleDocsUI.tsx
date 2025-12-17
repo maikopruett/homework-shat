@@ -5,6 +5,7 @@ import GlobalChatPanel from './GlobalChatPanel';
 import TiptapEditor, { type TiptapEditorHandle, type EditorState } from './TiptapEditor';
 import type { SearchResult } from '../api/exa';
 import { parseFile, getAcceptedFileTypes, isValidFileType, type ParsedFile } from '../utils/fileParser';
+import type { Todo, UserQuestionRequest } from '../agent/types';
 
 interface GoogleDocsUIProps {
   documents: Document[];
@@ -31,6 +32,11 @@ interface GoogleDocsUIProps {
   onSelectTemplate: (template: EssayTemplate | null) => void;
   onSaveAsTemplate: (name: string, editorRef: React.RefObject<TiptapEditorHandle | null>) => void;
   onDeleteTemplate: (templateId: string) => void;
+  // Plan mode props
+  todos: Todo[];
+  todoProgress: { total: number; completed: number; percentage: number };
+  pendingQuestion: UserQuestionRequest | null;
+  onAnswerQuestion: (questionId: string, selectedOptions: string[]) => void;
 }
 
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72];
@@ -69,7 +75,7 @@ const HIGHLIGHT_COLORS = [
   '#b2dfdb', '#c8e6c9', '#dcedc8', '#f0f4c3', '#fff9c4', '#ffecb3', '#ffe0b2', '#ffccbc',
 ];
 
-export default function GoogleDocsUI({ 
+export default function GoogleDocsUI({
   documents,
   activeDocument,
   isLoading,
@@ -93,6 +99,10 @@ export default function GoogleDocsUI({
   onSelectTemplate,
   onSaveAsTemplate,
   onDeleteTemplate,
+  todos,
+  todoProgress,
+  pendingQuestion,
+  onAnswerQuestion,
 }: GoogleDocsUIProps) {
   const editorRef = useRef<TiptapEditorHandle>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -2307,6 +2317,10 @@ ${html}
           onSaveAsTemplate={(name) => onSaveAsTemplate(name, editorRef)}
           onDeleteTemplate={onDeleteTemplate}
           editorRef={editorRef}
+          todos={todos}
+          todoProgress={todoProgress}
+          pendingQuestion={pendingQuestion}
+          onAnswerQuestion={onAnswerQuestion}
         />
       </div>
 

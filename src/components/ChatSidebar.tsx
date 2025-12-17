@@ -5,6 +5,9 @@ import { AVAILABLE_MODELS } from '../api/openrouter';
 import { parseFile, isValidFileType, getAcceptedFileTypes, type ParsedFile } from '../utils/fileParser';
 import type { SearchResult } from '../api/exa';
 import type { TiptapEditorHandle } from './TiptapEditor';
+import type { Todo, UserQuestionRequest } from '../agent/types';
+import TodoListPanel from './TodoListPanel';
+import UserQuestionUI from './UserQuestionUI';
 
 interface ChatSidebarProps {
   documents: Document[];
@@ -28,6 +31,11 @@ interface ChatSidebarProps {
   onSaveAsTemplate: (name: string) => void;
   onDeleteTemplate: (templateId: string) => void;
   editorRef: React.RefObject<TiptapEditorHandle | null>;
+  // Plan mode props
+  todos: Todo[];
+  todoProgress: { total: number; completed: number; percentage: number };
+  pendingQuestion: UserQuestionRequest | null;
+  onAnswerQuestion: (questionId: string, selectedOptions: string[]) => void;
 }
 
 // Helper to get status icon
@@ -105,6 +113,10 @@ export default function ChatSidebar({
   onSaveAsTemplate,
   onDeleteTemplate,
   editorRef,
+  todos,
+  todoProgress,
+  pendingQuestion,
+  onAnswerQuestion,
 }: ChatSidebarProps) {
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
@@ -480,6 +492,9 @@ export default function ChatSidebar({
           </div>
         </div>
 
+        {/* Todo List Panel */}
+        <TodoListPanel todos={todos} progress={todoProgress} />
+
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3" ref={chatMessagesRef}>
           {chatMessages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 px-6">
@@ -538,6 +553,15 @@ export default function ChatSidebar({
               )}
             </div>
           ))}
+
+          {/* User Question UI - shown when agent asks a question */}
+          {pendingQuestion && (
+            <UserQuestionUI
+              question={pendingQuestion}
+              onAnswer={(selectedOptions) => onAnswerQuestion(pendingQuestion.questionId, selectedOptions)}
+              disabled={false}
+            />
+          )}
         </div>
 
         <div className="border-t border-gray-200 bg-white">

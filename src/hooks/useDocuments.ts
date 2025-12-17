@@ -1,8 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { sendMessageStream, generateTitle, DEFAULT_MODEL } from '../api/openrouter';
-import type { ChatMessage, ToolDefinition, ToolCall } from '../api/openrouter';
+import { generateTitle, DEFAULT_MODEL } from '../api/openrouter';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
 import { searchExa, formatSearchResultsForAI, type SearchResult } from '../api/exa';
+
+// Agent system imports
+import { runAgentLoop } from '../agent/Loop';
+import { createAgentConfig, getPresetForMode } from '../agent/Agent';
+import type { ToolStatus, Todo, UserQuestionRequest, UserQuestionResponse } from '../agent/types';
+import { detectPlanMode, getPlanModeInstructions } from '../agent/planDetector';
 
 export type MessageStatus = 'thinking' | 'reading' | 'searching' | 'writing' | 'formatting' | 'done';
 
@@ -49,197 +54,7 @@ const PERSONA_STORAGE_KEY = 'homework-persona-settings';
 const GHOST_MODE_STORAGE_KEY = 'homework-ghost-mode';
 const TEMPLATES_STORAGE_KEY = 'homework-essay-templates';
 
-// ==================== TOOL DEFINITIONS ====================
-
-const DOCUMENT_TOOLS: ToolDefinition[] = [
-  {
-    type: 'function',
-    function: {
-      name: 'read_document',
-      description: 'Read and analyze the current document content. You MUST call this before making any edits to understand what exists in the document.',
-      strict: true,
-      parameters: {
-        type: 'object',
-        properties: {
-          focus: {
-            type: 'string',
-            description: 'What aspect to focus on: "full" for entire document, or describe specific section/element to analyze (e.g., "introduction", "formatting", "conclusion").',
-          },
-        },
-        required: ['focus'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'write_content',
-      description: 'Append content to the end of the document. Use this to add new text, paragraphs, or sections. Content will be added after any existing content.',
-      strict: true,
-      parameters: {
-        type: 'object',
-        properties: {
-          content: {
-            type: 'string',
-            description: 'The text content to add to the document. Use newlines for paragraphs. Do not use markdown - plain text only.',
-          },
-        },
-        required: ['content'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'clear_document',
-      description: 'Clear all content from the document. ONLY use this if the document has existing content that needs to be replaced. Do NOT call this on an empty document.',
-      strict: true,
-      parameters: {
-        type: 'object',
-        properties: {},
-        required: [],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'edit_text',
-      description: 'Find specific text in the document and replace it with new text. Use for targeted edits to existing content.',
-      strict: true,
-      parameters: {
-        type: 'object',
-        properties: {
-          find_text: {
-            type: 'string',
-            description: 'The exact text to find and replace in the document.',
-          },
-          replace_with: {
-            type: 'string',
-            description: 'The new text to replace the found text with.',
-          },
-        },
-        required: ['find_text', 'replace_with'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'insert_content',
-      description: 'Insert content at a specific position in the document.',
-      strict: true,
-      parameters: {
-        type: 'object',
-        properties: {
-          content: {
-            type: 'string',
-            description: 'The text content to insert.',
-          },
-          position: {
-            type: 'string',
-            enum: ['start', 'end', 'before', 'after'],
-            description: 'Where to insert: "start" for beginning of document, "end" for end, "before" or "after" a target text.',
-          },
-          target_text: {
-            type: 'string',
-            description: 'Required when position is "before" or "after". The text to insert relative to.',
-          },
-        },
-        required: ['content', 'position'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'format_text',
-      description: 'Apply formatting to text in the document. Can target specific text or the entire document.',
-      strict: true,
-      parameters: {
-        type: 'object',
-        properties: {
-          format_type: {
-            type: 'string',
-            enum: [
-              'bold', 'italic', 'underline', 'strikethrough',
-              'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'paragraph',
-              'bulletList', 'orderedList', 'blockquote', 'codeBlock',
-              'align', 'textColor', 'highlight', 'fontSize', 'fontFamily',
-              'textIndent', 'removeFormat', 'link', 'horizontalRule'
-            ],
-            description: 'The type of formatting to apply.',
-          },
-          target: {
-            type: 'string',
-            description: 'The exact text to format, or "all" to format the entire document.',
-          },
-          value: {
-            type: 'string',
-            description: 'Value for formatting types that need it: color hex codes for textColor/highlight, alignment value (left/center/right/justify), font size (e.g. "14pt"), font family name, indent value (e.g. "0.5in"), or URL for links.',
-          },
-        },
-        required: ['format_type', 'target'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'indent_body_paragraphs',
-      description: 'Apply first-line indent to all body paragraphs in the document. Use this for MLA/APA formatting. Skips header lines (first few lines with name, date, title, etc.) and special sections like Works Cited/References.',
-      strict: true,
-      parameters: {
-        type: 'object',
-        properties: {
-          indent_value: {
-            type: 'string',
-            description: 'The indent value, e.g. "0.5in" for half inch (standard for MLA/APA).',
-          },
-          skip_lines: {
-            type: 'number',
-            description: 'Number of lines to skip at the start (header block). For MLA use 5 (name, professor, class, date, title). For APA use 7 (title, name, dept, course, instructor, date, blank line).',
-          },
-        },
-        required: ['indent_value', 'skip_lines'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_web',
-      description: 'Search the web for information to include in the document. Use this when writing essays that need citations, researching topics, or finding facts. Returns search results that you should use for citations.',
-      strict: true,
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'The search query to find relevant information.',
-          },
-        },
-        required: ['query'],
-        additionalProperties: false,
-      },
-    },
-  },
-];
-
 // ==================== HELPER FUNCTIONS ====================
-
-interface FormatAction {
-  type: string;
-  target: string;
-  value?: string;
-}
 
 function loadDocuments(): Document[] {
   try {
@@ -418,101 +233,6 @@ function createNewDocument(title: string = 'Untitled document'): Document {
     chatMessages: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
-  };
-}
-
-// Normalize quotes and apostrophes for flexible text matching
-function normalizeForMatching(text: string): string {
-  return text
-    .replace(/[''`′‵ʼ]/g, "'")  // Normalize single quotes/apostrophes
-    .replace(/[""″‶]/g, '"');   // Normalize double quotes
-}
-
-// Extract a reasonable target from potentially malformed AI output
-function extractReasonableTarget(target: string): string[] {
-  const candidates: string[] = [];
-  
-  // If target is short and reasonable, use it as-is
-  if (target.length <= 100 && !target.includes('\n')) {
-    candidates.push(target);
-    return candidates;
-  }
-  
-  // Try first line only (most likely the actual title)
-  const firstLine = target.split('\n')[0].trim();
-  if (firstLine.length > 0 && firstLine.length <= 150) {
-    candidates.push(firstLine);
-  }
-  
-  // If first line contains a colon with repeated text (like "Title: Title"), extract just the first part
-  const colonMatch = firstLine.match(/^(.+?):\s*\1/);
-  if (colonMatch) {
-    candidates.push(colonMatch[1].trim());
-  }
-  
-  // Try text before first colon if it looks like "Title: rest of content"
-  const beforeColon = firstLine.split(':')[0].trim();
-  if (beforeColon.length > 0 && beforeColon.length < firstLine.length) {
-    candidates.push(beforeColon);
-  }
-  
-  // Also try the original if nothing else works
-  if (candidates.length === 0) {
-    candidates.push(target);
-  }
-  
-  return candidates;
-}
-
-// Search for text across multiple nodes (handles text split by formatting)
-interface TextSearchResult {
-  from: number;
-  to: number;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function findTextInDocument(doc: any, searchText: string): TextSearchResult | null {
-  // Build a map of all text content with positions
-  const textSegments: { text: string; pos: number }[] = [];
-  
-  doc.descendants((node: { isText: boolean; text?: string }, pos: number) => {
-    if (node.isText && node.text) {
-      textSegments.push({ text: node.text, pos });
-    }
-  });
-  
-  if (textSegments.length === 0) return null;
-  
-  // Build combined text and position map
-  let combinedText = '';
-  const positionMap: { charIndex: number; docPos: number }[] = [];
-  
-  for (const segment of textSegments) {
-    for (let i = 0; i < segment.text.length; i++) {
-      positionMap.push({
-        charIndex: combinedText.length + i,
-        docPos: segment.pos + i
-      });
-    }
-    combinedText += segment.text;
-  }
-  
-  // Search in combined text (normalized)
-  const normalizedCombined = normalizeForMatching(combinedText);
-  const normalizedSearch = normalizeForMatching(searchText);
-  const index = normalizedCombined.indexOf(normalizedSearch);
-  
-  if (index === -1) return null;
-  
-  // Map back to document positions
-  const fromEntry = positionMap[index];
-  const toEntry = positionMap[index + searchText.length - 1];
-  
-  if (!fromEntry || !toEntry) return null;
-  
-  return {
-    from: fromEntry.docPos,
-    to: toEntry.docPos + 1  // +1 because 'to' is exclusive in Tiptap
   };
 }
 
@@ -923,245 +643,6 @@ function generateTemplateInstructions(htmlContent: string): string {
   return instructions.join('\n');
 }
 
-// Convert plain text with line breaks to HTML
-// Each line becomes its own paragraph for proper block-level formatting (alignment, indentation)
-// This matches word processor behavior where Enter = new paragraph
-function textToHtml(text: string): string {
-  // Split by any newline(s) - each line becomes its own paragraph
-  const lines = text.split(/\n/).filter(line => line.trim());
-  
-  const result: string[] = [];
-  let i = 0;
-  
-  while (i < lines.length) {
-    const line = lines[i];
-    const trimmed = line.trim();
-    
-    // Check if this is a bullet point
-    if (trimmed.startsWith('•') || trimmed.startsWith('-') || trimmed.startsWith('*')) {
-      // Collect consecutive bullet items
-      const listItems: string[] = [];
-      while (i < lines.length) {
-        const currentTrimmed = lines[i].trim();
-        if (currentTrimmed.startsWith('•') || currentTrimmed.startsWith('-') || currentTrimmed.startsWith('*')) {
-          const cleanItem = currentTrimmed.replace(/^[•\-\*]\s*/, '');
-          listItems.push(`<li><p>${cleanItem}</p></li>`);
-          i++;
-        } else {
-          break;
-        }
-      }
-      result.push(`<ul>${listItems.join('')}</ul>`);
-      continue;
-    }
-    
-    // Check if this is a numbered list item
-    if (/^\d+[\.\)]\s/.test(trimmed)) {
-      // Collect consecutive numbered items
-      const listItems: string[] = [];
-      while (i < lines.length) {
-        const currentTrimmed = lines[i].trim();
-        if (/^\d+[\.\)]\s/.test(currentTrimmed)) {
-          const cleanItem = currentTrimmed.replace(/^\d+[\.\)]\s*/, '');
-          listItems.push(`<li><p>${cleanItem}</p></li>`);
-          i++;
-        } else {
-          break;
-        }
-      }
-      result.push(`<ol>${listItems.join('')}</ol>`);
-      continue;
-    }
-    
-    // Regular paragraph - each line is its own paragraph
-    result.push(`<p>${trimmed}</p>`);
-    i++;
-  }
-  
-  return result.join('');
-}
-
-// Apply formatting using Tiptap editor API
-function applyFormatting(editor: TiptapEditorHandle, action: FormatAction): boolean {
-  const editorInstance = editor.getEditor();
-  if (!editorInstance) {
-    console.warn('Editor instance not available');
-    return false;
-  }
-
-  // If target is specific text, we need to select it first
-  if (action.target !== 'all') {
-    const doc = editorInstance.state.doc;
-    let result: TextSearchResult | null = null;
-
-    // Get candidate targets (handles malformed AI output)
-    const candidates = extractReasonableTarget(action.target);
-
-    // Try each candidate until we find a match
-    for (const candidate of candidates) {
-      result = findTextInDocument(doc, candidate);
-      if (result) break;
-    }
-
-    if (result) {
-      editorInstance.chain().focus().setTextSelection({ from: result.from, to: result.to }).run();
-    } else {
-      console.warn('Could not find text to format. Tried candidates:', candidates);
-      return false;
-    }
-  } else {
-    // Select all content
-    editorInstance.chain().focus().selectAll().run();
-  }
-
-  // Apply the formatting command
-  switch (action.type) {
-    case 'bold':
-      editor.toggleBold();
-      break;
-    case 'italic':
-      editor.toggleItalic();
-      break;
-    case 'underline':
-      editor.toggleUnderline();
-      break;
-    case 'strikethrough':
-    case 'strike':
-      editor.toggleStrike();
-      break;
-    case 'textColor':
-    case 'text-color':
-    case 'color':
-      if (action.value) {
-        editor.setTextColor(action.value);
-      }
-      break;
-    case 'highlight':
-    case 'highlightColor':
-    case 'highlight-color':
-    case 'backgroundColor':
-    case 'background-color':
-      if (action.value) {
-        editor.setHighlight(action.value);
-      }
-      break;
-    case 'fontSize':
-    case 'font-size':
-      if (action.value) {
-        editor.setFontSize(action.value);
-      }
-      break;
-    case 'fontFamily':
-    case 'font-family':
-    case 'font':
-      if (action.value) {
-        editor.setFontFamily(action.value);
-      }
-      break;
-    case 'heading':
-    case 'heading1':
-    case 'h1':
-      editor.setHeading(1);
-      break;
-    case 'heading2':
-    case 'h2':
-      editor.setHeading(2);
-      break;
-    case 'heading3':
-    case 'h3':
-      editor.setHeading(3);
-      break;
-    case 'heading4':
-    case 'h4':
-      editor.setHeading(4);
-      break;
-    case 'heading5':
-    case 'h5':
-      editor.setHeading(5);
-      break;
-    case 'heading6':
-    case 'h6':
-      editor.setHeading(6);
-      break;
-    case 'paragraph':
-    case 'normal':
-      editor.setParagraph();
-      break;
-    case 'bulletList':
-    case 'bullet-list':
-    case 'bullets':
-      editor.toggleBulletList();
-      break;
-    case 'orderedList':
-    case 'ordered-list':
-    case 'numbered':
-    case 'numberList':
-    case 'number-list':
-      editor.toggleOrderedList();
-      break;
-    case 'blockquote':
-    case 'quote':
-      editor.toggleBlockquote();
-      break;
-    case 'codeBlock':
-    case 'code-block':
-    case 'code':
-      editor.toggleCodeBlock();
-      break;
-    case 'horizontalRule':
-    case 'horizontal-rule':
-    case 'hr':
-    case 'divider':
-      editor.insertHorizontalRule();
-      break;
-    case 'align':
-    case 'textAlign':
-    case 'text-align':
-      if (action.value) {
-        const alignValue = action.value.toLowerCase() as 'left' | 'center' | 'right' | 'justify';
-        editor.setTextAlign(alignValue);
-      }
-      break;
-    case 'removeFormat':
-    case 'remove-format':
-    case 'clearFormat':
-    case 'clear-format':
-    case 'clear':
-      editor.clearFormatting();
-      break;
-    case 'link':
-      if (action.value) {
-        editor.setLink(action.value);
-      }
-      break;
-    case 'textIndent':
-    case 'text-indent':
-    case 'indent':
-    case 'firstLineIndent':
-    case 'first-line-indent':
-      if (action.value) {
-        editor.setTextIndent(action.value);
-      } else {
-        // Default indent is 2em (roughly two character widths, like a tab)
-        editor.setTextIndent('2em');
-      }
-      break;
-    case 'removeIndent':
-    case 'remove-indent':
-    case 'unindent':
-      editor.unsetTextIndent();
-      break;
-    default:
-      console.warn('Unknown format type:', action.type);
-      return false;
-  }
-
-  // Clear selection after formatting
-  editorInstance.commands.focus('end');
-
-  return true;
-}
-
 // ==================== SYSTEM PROMPT CONFIGURATION ====================
 // Edit these once - they apply to both default and persona modes
 
@@ -1316,64 +797,38 @@ export function useDocuments() {
   });
   const [templates, setTemplates] = useState<EssayTemplate[]>(() => getAllTemplates());
   const [selectedTemplate, setSelectedTemplate] = useState<EssayTemplate | null>(null);
+
+  // Plan mode state
+  const [currentTodos, setCurrentTodos] = useState<Todo[]>([]);
+  const [pendingQuestion, setPendingQuestion] = useState<UserQuestionRequest | null>(null);
+  const questionResolverRef = useRef<((response: UserQuestionResponse) => void) | null>(null);
+
+  // Calculate todo progress
+  const todoProgress = {
+    total: currentTodos.length,
+    completed: currentTodos.filter(t => t.status === 'completed').length,
+    percentage: currentTodos.length > 0
+      ? Math.round((currentTodos.filter(t => t.status === 'completed').length / currentTodos.length) * 100)
+      : 0,
+  };
+
+  // Answer a pending user question
+  const answerQuestion = useCallback((questionId: string, selectedOptions: string[]) => {
+    if (questionResolverRef.current && pendingQuestion?.questionId === questionId) {
+      const response: UserQuestionResponse = {
+        questionId,
+        selectedOptions,
+        timestamp: Date.now(),
+      };
+      questionResolverRef.current(response);
+      questionResolverRef.current = null;
+      setPendingQuestion(null);
+    }
+  }, [pendingQuestion]);
+
   const editorRefStore = useRef<TiptapEditorHandle | null>(null);
   const streamingChatRef = useRef<string>('');
   const abortControllerRef = useRef<AbortController | null>(null);
-  const savedScrollPositionRef = useRef<number | null>(null);
-  const pendingSearchResultsRef = useRef<SearchResult[] | null>(null);
-
-  // Helper function to find the scrollable container (parent with overflow-y-auto)
-  const findScrollableContainer = useCallback((editorElement: HTMLElement | null): HTMLElement | null => {
-    if (!editorElement) return null;
-    
-    let current: HTMLElement | null = editorElement.parentElement;
-    while (current) {
-      const style = window.getComputedStyle(current);
-      if (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflow === 'auto' || style.overflow === 'scroll') {
-        return current;
-      }
-      current = current.parentElement;
-    }
-    return null;
-  }, []);
-
-  // Save scroll position before AI edits
-  const saveScrollPosition = useCallback(() => {
-    const editorHandle = editorRefStore.current;
-    if (!editorHandle) return;
-    
-    const editor = editorHandle.getEditor();
-    if (!editor) return;
-    
-    const editorElement = editor.view.dom as HTMLElement;
-    const scrollContainer = findScrollableContainer(editorElement);
-    
-    if (scrollContainer) {
-      savedScrollPositionRef.current = scrollContainer.scrollTop;
-    }
-  }, [findScrollableContainer]);
-
-  // Restore scroll position after AI edits
-  const restoreScrollPosition = useCallback(() => {
-    const editorHandle = editorRefStore.current;
-    if (!editorHandle || savedScrollPositionRef.current === null) return;
-    
-    const editor = editorHandle.getEditor();
-    if (!editor) return;
-    
-    const editorElement = editor.view.dom as HTMLElement;
-    const scrollContainer = findScrollableContainer(editorElement);
-    
-    if (scrollContainer) {
-      // Use requestAnimationFrame to ensure DOM has updated
-      requestAnimationFrame(() => {
-        if (savedScrollPositionRef.current !== null) {
-          scrollContainer.scrollTop = savedScrollPositionRef.current;
-          savedScrollPositionRef.current = null;
-        }
-      });
-    }
-  }, [findScrollableContainer]);
 
   const activeDocument = documents.find(d => d.id === activeDocId) || documents[0];
 
@@ -1537,26 +992,6 @@ export function useDocuments() {
     return title || 'Untitled document';
   }, []);
 
-  // Helper to update message status
-  const updateMessageStatus = useCallback((
-    messageId: string,
-    status: MessageStatus,
-    statusDetail?: string
-  ) => {
-    setDocuments(prev => prev.map(doc => 
-      doc.id === activeDocId 
-        ? { 
-            ...doc, 
-            chatMessages: doc.chatMessages.map(m => 
-              m.id === messageId 
-                ? { ...m, status, statusDetail }
-                : m
-            ),
-          }
-        : doc
-    ));
-  }, [activeDocId]);
-
   // Perform a search and return results
   const performSearch = useCallback(async (query: string): Promise<SearchResult[]> => {
     setIsSearching(true);
@@ -1574,339 +1009,30 @@ export function useDocuments() {
     }
   }, []);
 
-  // Tool execution handler
-  const executeToolCall = useCallback(async (
-    toolCall: ToolCall,
-    assistantId: string,
-    currentDate: string
-  ): Promise<ChatMessage> => {
-    const { name, arguments: argsJson } = toolCall.function;
-    let args: Record<string, unknown>;
-    
-    try {
-      args = JSON.parse(argsJson);
-    } catch {
-      return {
-        role: 'tool',
-        tool_call_id: toolCall.id,
-        content: JSON.stringify({ error: 'Invalid JSON arguments' }),
-      };
-    }
-    
-    console.log('[Tool] Executing:', name, args);
-    
-    const editorRef = editorRefStore.current;
-    
-    // Status will be updated per-tool in each case below
-    
-    try {
-      switch (name) {
-        case 'read_document': {
-          const focus = args.focus as string;
-          updateMessageStatus(assistantId, 'reading', focus === 'full' ? 'Reading document...' : `Analyzing ${focus}...`);
-          
-          if (editorRef) {
-            const textContent = editorRef.getText();
-            const stylingInfo = extractDocumentStyling(editorRef);
-            const wordCount = textContent.split(/\s+/).filter(Boolean).length;
-            
-            return {
-              role: 'tool',
-              tool_call_id: toolCall.id,
-              content: JSON.stringify({
-                success: true,
-                focus,
-                content: textContent || '(empty document)',
-                word_count: wordCount,
-                character_count: textContent.length,
-                styling: formatStylingForAI(stylingInfo),
-              }),
-            };
-          }
-          return {
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({ success: false, error: 'Editor not available' }),
-          };
-        }
-        
-        case 'write_content': {
-          const content = args.content as string;
-          updateMessageStatus(assistantId, 'writing', 'Writing content...');
-          if (editorRef) {
-            saveScrollPosition();
-            const htmlContent = textToHtml(content);
-            editorRef.insertContent(htmlContent);
-            restoreScrollPosition();
-          }
-          return {
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({ success: true }),
-          };
-        }
+  const clearChat = useCallback(() => {
+    setDocuments(prev => prev.map(doc =>
+      doc.id === activeDocId
+        ? { ...doc, chatMessages: [], updatedAt: Date.now() }
+        : doc
+    ));
+    setError(null);
+  }, [activeDocId]);
 
-        case 'clear_document': {
-          updateMessageStatus(assistantId, 'writing', 'Clearing document...');
-          if (editorRef) {
-            saveScrollPosition();
-            editorRef.clearContent();
-            restoreScrollPosition();
-          }
-          return {
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({ success: true }),
-          };
-        }
-        
-        case 'edit_text': {
-          const findText = args.find_text as string;
-          const replaceWith = args.replace_with as string;
-          updateMessageStatus(assistantId, 'writing', 'Editing text...');
-          
-          if (editorRef) {
-            const editor = editorRef.getEditor();
-            if (editor) {
-              saveScrollPosition();
-              const doc = editor.state.doc;
-              const result = findTextInDocument(doc, findText);
-              
-              if (result) {
-                editor.chain()
-                  .focus()
-                  .setTextSelection({ from: result.from, to: result.to })
-                  .deleteSelection()
-                  .insertContent(replaceWith)
-                  .run();
-                restoreScrollPosition();
-                return {
-                  role: 'tool',
-                  tool_call_id: toolCall.id,
-                  content: JSON.stringify({ success: true }),
-                };
-              } else {
-                return {
-                  role: 'tool',
-                  tool_call_id: toolCall.id,
-                  content: JSON.stringify({ success: false, error: 'Text not found in document' }),
-                };
-              }
-            }
-          }
-          return {
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({ success: false, error: 'Editor not available' }),
-          };
-        }
-        
-        case 'insert_content': {
-          const content = args.content as string;
-          const position = args.position as 'start' | 'end' | 'before' | 'after';
-          const targetText = args.target_text as string | undefined;
-          updateMessageStatus(assistantId, 'writing', `Inserting at ${position}...`);
-          
-          if (editorRef) {
-            const editor = editorRef.getEditor();
-            if (editor) {
-              saveScrollPosition();
-              const htmlContent = textToHtml(content);
-              
-              if (position === 'start') {
-                editor.chain().focus().setTextSelection(0).insertContent(htmlContent).run();
-              } else if (position === 'end') {
-                editorRef.insertContent(htmlContent);
-              } else if (position === 'after' && targetText) {
-                const doc = editor.state.doc;
-                const result = findTextInDocument(doc, targetText);
-                if (result) {
-                  editor.chain().focus().setTextSelection(result.to).insertContent(htmlContent).run();
-                } else {
-                  editorRef.insertContent(htmlContent);
-                }
-              } else if (position === 'before' && targetText) {
-                const doc = editor.state.doc;
-                const result = findTextInDocument(doc, targetText);
-                if (result) {
-                  editor.chain().focus().setTextSelection(result.from).insertContent(htmlContent).run();
-                } else {
-                  editor.chain().focus().setTextSelection(0).insertContent(htmlContent).run();
-                }
-              }
-              restoreScrollPosition();
-            }
-          }
-          return {
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({ success: true }),
-          };
-        }
-        
-        case 'format_text': {
-          const formatType = args.format_type as string;
-          const target = args.target as string;
-          const value = args.value as string | undefined;
-          updateMessageStatus(assistantId, 'formatting', `Applying ${formatType}...`);
-          
-          if (editorRef) {
-            saveScrollPosition();
-            const action: FormatAction = {
-              type: formatType,
-              target: target,
-              value: value,
-            };
-            const success = applyFormatting(editorRef, action);
-            restoreScrollPosition();
-            return {
-              role: 'tool',
-              tool_call_id: toolCall.id,
-              content: JSON.stringify({ success, error: success ? undefined : 'Failed to apply formatting' }),
-            };
-          }
-          return {
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({ success: false, error: 'Editor not available' }),
-          };
-        }
-        
-        case 'indent_body_paragraphs': {
-          const indentValue = args.indent_value as string;
-          const skipLines = args.skip_lines as number;
-          updateMessageStatus(assistantId, 'formatting', 'Indenting body paragraphs...');
-
-          if (editorRef) {
-            const editor = editorRef.getEditor();
-            if (editor) {
-              saveScrollPosition();
-
-              // Get all paragraph nodes and their positions
-              const doc = editor.state.doc;
-              const paragraphsToIndent: { from: number; to: number }[] = [];
-              let paragraphIndex = 0;
-
-              // Special section markers to skip (Works Cited, References, etc.)
-              const skipMarkers = ['works cited', 'references', 'bibliography'];
-              let inSkipSection = false;
-
-              doc.descendants((node, pos) => {
-                if (node.type.name === 'paragraph') {
-                  const text = node.textContent.toLowerCase().trim();
-
-                  // Check if we're entering a skip section
-                  if (skipMarkers.some(marker => text === marker)) {
-                    inSkipSection = true;
-                  }
-
-                  // Skip header lines, empty paragraphs, and skip sections
-                  if (paragraphIndex >= skipLines && node.textContent.trim() && !inSkipSection) {
-                    paragraphsToIndent.push({ from: pos, to: pos + node.nodeSize });
-                  }
-
-                  paragraphIndex++;
-                }
-                return true;
-              });
-
-              // Apply indent to each paragraph (in reverse to preserve positions)
-              for (let i = paragraphsToIndent.length - 1; i >= 0; i--) {
-                const { from, to } = paragraphsToIndent[i];
-                editor.chain()
-                  .focus()
-                  .setTextSelection({ from, to })
-                  .run();
-                editorRef.setTextIndent(indentValue);
-              }
-
-              // Move cursor to end
-              editor.commands.focus('end');
-              restoreScrollPosition();
-
-              return {
-                role: 'tool',
-                tool_call_id: toolCall.id,
-                content: JSON.stringify({
-                  success: true,
-                  paragraphs_indented: paragraphsToIndent.length,
-                  skipped_header_lines: skipLines,
-                }),
-              };
-            }
-          }
-          return {
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({ success: false, error: 'Editor not available' }),
-          };
-        }
-
-        case 'search_web': {
-          const query = args.query as string;
-          updateMessageStatus(assistantId, 'searching', `Searching for "${query.slice(0, 50)}${query.length > 50 ? '...' : ''}"...`);
-          
-          setIsSearching(true);
-          try {
-            const results = await searchExa(query);
-            setSearchResults(results);
-            pendingSearchResultsRef.current = results;
-            
-            // Format results for the model
-            const formattedResults = formatSearchResultsForAI(results);
-            
-            return {
-              role: 'tool',
-              tool_call_id: toolCall.id,
-              content: JSON.stringify({
-                success: true,
-                results_count: results.length,
-                results: formattedResults,
-                current_date: currentDate,
-              }),
-            };
-          } catch (err) {
-            const message = err instanceof Error ? err.message : 'Search failed';
-            return {
-              role: 'tool',
-              tool_call_id: toolCall.id,
-              content: JSON.stringify({ success: false, error: message }),
-            };
-          } finally {
-            setIsSearching(false);
-          }
-        }
-        
-        default:
-          return {
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({ error: `Unknown tool: ${name}` }),
-          };
-      }
-    } finally {
-      // Status is managed per-tool call, no cleanup needed here
-    }
-  }, [activeDocId, saveScrollPosition, restoreScrollPosition, updateMessageStatus]);
-
-  // Send a chat message with tool calling capability
+  // Send a chat message using the agent system
   const sendMessage = useCallback(async (
-    content: string, 
-    editorRef: React.RefObject<TiptapEditorHandle | null>, 
-    mode: ChatMode = 'edit', 
+    content: string,
+    editorRef: React.RefObject<TiptapEditorHandle | null>,
+    mode: ChatMode = 'edit',
     preSearchResults?: SearchResult[]
   ) => {
-    console.log('[Chat] sendMessage called', { mode, hasPreSearchResults: !!preSearchResults, isLoading, hasActiveDocument: !!activeDocument });
+    console.log('[AgentSystem] sendMessageWithAgent called', { mode, hasPreSearchResults: !!preSearchResults });
     if (!content.trim() || isLoading || !activeDocument) {
-      console.log('[Chat] sendMessage early return', { emptyContent: !content.trim(), isLoading, noActiveDocument: !activeDocument });
       return;
     }
 
-    // Track if we need to generate a title after completion
     const shouldGenerateTitle = activeDocument.title === 'Untitled document' && activeDocument.chatMessages.length === 0;
     const originalUserMessage = content.trim();
 
-    // Store editor ref for use in callbacks
     editorRefStore.current = editorRef.current;
 
     const userMessage: DocChatMessage = {
@@ -1916,95 +1042,62 @@ export function useDocuments() {
       timestamp: Date.now(),
     };
 
-    // Use an object so assistantId can be updated when follow-up calls create new messages
-    const messageState = {
-      assistantId: crypto.randomUUID(),
-      firstTokenReceived: false,
-    };
+    const assistantMessageId = crypto.randomUUID();
     streamingChatRef.current = '';
-    pendingSearchResultsRef.current = null;
 
     // Add user message
-    setDocuments(prev => prev.map(doc => 
-      doc.id === activeDocId 
+    setDocuments(prev => prev.map(doc =>
+      doc.id === activeDocId
         ? { ...doc, chatMessages: [...doc.chatMessages, userMessage], updatedAt: Date.now() }
         : doc
     ));
 
-    console.log('[Chat] Setting isLoading=true, starting stream');
     setIsLoading(true);
     setError(null);
 
-    // Build chat history for API
-    const chatHistory: ChatMessage[] = activeDocument.chatMessages.map(m => ({
-      role: m.role,
-      content: m.content,
-    }));
-    chatHistory.push({ role: 'user', content: content.trim() });
+    // Create abort controller
+    abortControllerRef.current = new AbortController();
 
-    // Include current document content in context
+    // Build context for the agent
     const documentContext = editorRef.current?.getText() || activeDocument.content;
-    
-    // Choose system prompt based on persona settings
+
+    // Choose system prompt based on persona
     let basePrompt: string;
     if (personaSettings && personaSettings.documentContent) {
-      // Use persona-aware prompts
-      basePrompt = mode === 'edit' 
-        ? generatePersonaSystemPrompt(personaSettings) 
+      basePrompt = mode === 'edit'
+        ? generatePersonaSystemPrompt(personaSettings)
         : generatePersonaChatPrompt(personaSettings);
     } else {
-      // Use default prompts
       basePrompt = mode === 'edit' ? SYSTEM_PROMPT : CHAT_MODE_SYSTEM_PROMPT;
     }
-    
-    // Get current date for citations
+
     const today = new Date();
-    const currentDate = today.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
+    const currentDate = today.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
     });
-    
-    // Extract document styling information if editor is available
+
     let stylingContext = '';
     if (editorRef.current) {
       const stylingInfo = extractDocumentStyling(editorRef.current);
       stylingContext = formatStylingForAI(stylingInfo);
     }
-    
-    // Build system message with optional search results
+
     let systemContent = `${basePrompt}\n\nToday's Date: ${currentDate}\n\nDocument Title: "${activeDocument.title}"\n\nCurrent Document Content:\n${documentContext || '(empty document)'}\n\n${stylingContext}`;
-    
+
     if (preSearchResults && preSearchResults.length > 0) {
       const formattedResults = formatSearchResultsForAI(preSearchResults);
       systemContent += `\n\n## Research Results (use these for citations):\n${formattedResults}\n\nIMPORTANT: Use the research results above to support your writing with accurate information and proper citations. Include URLs when citing sources. For "Accessed" dates in citations, use today's date: ${currentDate}.`;
     }
-    
-    // Add template context if a template is selected
+
     if (selectedTemplate) {
-      systemContent += `\n\n## TEMPLATE TO FOLLOW (CRITICAL)
-
-You MUST follow this template exactly when writing. Match the structure, formatting, fonts, sizes, alignment, and spacing.
-
-### Template: ${selectedTemplate.name}
-
-${selectedTemplate.formattingInstructions}
-
-CRITICAL INSTRUCTIONS:
-1. Follow the EXACT structure shown in the formatting instructions above
-2. Use format_text tool calls to apply fonts, sizes, and alignments EXACTLY as specified
-3. Write content first, then apply formatting using the tool calls
-4. Replace placeholder text with actual content while applying the exact formatting specified`;
+      systemContent += `\n\n## TEMPLATE TO FOLLOW (CRITICAL)\n\nYou MUST follow this template exactly when writing. Match the structure, formatting, fonts, sizes, alignment, and spacing.\n\n### Template: ${selectedTemplate.name}\n\n${selectedTemplate.formattingInstructions}\n\nCRITICAL INSTRUCTIONS:\n1. Follow the EXACT structure shown in the formatting instructions above\n2. Use format_text tool calls to apply fonts, sizes, and alignments EXACTLY as specified\n3. Write content first, then apply formatting using the tool calls\n4. Replace placeholder text with actual content while applying the exact formatting specified`;
     }
-    
-    const systemMessage: ChatMessage = {
-      role: 'system' as const,
-      content: systemContent,
-    };
 
-    // Create placeholder for streaming message
+    // Create placeholder assistant message
     const assistantMessage: DocChatMessage = {
-      id: messageState.assistantId,
+      id: assistantMessageId,
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
@@ -2012,206 +1105,212 @@ CRITICAL INSTRUCTIONS:
       statusDetail: 'Thinking...',
     };
 
-    setDocuments(prev => prev.map(doc => 
-      doc.id === activeDocId 
+    setDocuments(prev => prev.map(doc =>
+      doc.id === activeDocId
         ? { ...doc, chatMessages: [...doc.chatMessages, assistantMessage], updatedAt: Date.now() }
         : doc
     ));
 
-    // Create abort controller for this request
-    abortControllerRef.current = new AbortController();
+    // Detect plan mode for essay writing
+    const planDetection = detectPlanMode(content);
+    const usePlanMode = mode === 'edit' && planDetection.shouldUsePlanMode;
 
-    // Determine which tools to use based on mode
-    const tools = mode === 'edit' ? DOCUMENT_TOOLS : undefined;
-    
-    console.log('[Stream] Starting stream with model:', selectedModel, 'mode:', mode, 'tools:', tools?.length || 0);
-    await sendMessageStream(
-      [systemMessage, ...chatHistory],
-      {
-        onToken: (token: string) => {
+    // Create agent config based on mode and plan detection
+    let presetKey = getPresetForMode(mode);
+    if (usePlanMode) {
+      presetKey = 'essay_planner';
+      // Add plan mode instructions to system prompt
+      systemContent += '\n\n' + getPlanModeInstructions();
+    }
+
+    const agentConfig = createAgentConfig(presetKey, {
+      model: selectedModel,
+      systemPrompt: systemContent,
+    });
+
+    // Create session for the agent
+    const agentSession = {
+      id: crypto.randomUUID(),
+      agentConfig,
+      messages: [] as import('../agent/types').Message[],
+      todos: [] as import('../agent/types').Todo[],
+      status: 'active' as const,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    // Status update handler
+    const handleStatusUpdate = (status: ToolStatus) => {
+      console.log('[AgentSystem] Tool status:', status);
+      // Map tool status to message status
+      let messageStatus: MessageStatus = 'thinking';
+      let statusDetail: string | undefined = status.title;
+
+      if (status.toolId === 'read_document') {
+        messageStatus = 'reading';
+      } else if (status.toolId === 'search_web') {
+        messageStatus = 'searching';
+      } else if (status.toolId === 'write_content' || status.toolId === 'edit_text' || status.toolId === 'insert_content') {
+        messageStatus = 'writing';
+      } else if (status.toolId === 'format_text' || status.toolId === 'indent_body_paragraphs') {
+        messageStatus = 'formatting';
+      }
+
+      if (status.status === 'completed' || status.status === 'error') {
+        messageStatus = 'thinking';
+        statusDetail = status.status === 'error' ? `Error: ${status.title}` : undefined;
+      }
+
+      setDocuments(prev => prev.map(doc =>
+        doc.id === activeDocId
+          ? {
+              ...doc,
+              chatMessages: doc.chatMessages.map(m =>
+                m.id === assistantMessageId
+                  ? { ...m, status: messageStatus, statusDetail }
+                  : m
+              ),
+              updatedAt: Date.now()
+            }
+          : doc
+      ));
+    };
+
+    try {
+      // Run the agent loop
+      const result = await runAgentLoop({
+        session: agentSession,
+        userMessage: content.trim(),
+        editor: editorRef.current ?? null,
+        document: activeDocument ? { id: activeDocument.id, title: activeDocument.title, content: documentContext || '' } : null,
+        systemPrompt: systemContent,
+        onStatusUpdate: handleStatusUpdate,
+        onMessageUpdate: (message) => {
+          console.log('[AgentSystem] Message update:', message.role);
+          // Update todos from session when message updates
+          if (agentSession.todos.length > 0) {
+            setCurrentTodos([...agentSession.todos]);
+          }
+        },
+        onTokenReceived: (token: string) => {
           streamingChatRef.current += token;
-          messageState.firstTokenReceived = true;
-          
-          // Trim leading/trailing whitespace for display
           const displayContent = streamingChatRef.current.trim();
-          
-          // Only update content, don't touch status - let tool executions control that
-          setDocuments(prev => prev.map(doc => 
-            doc.id === activeDocId 
-              ? { 
-                  ...doc, 
-                  chatMessages: doc.chatMessages.map(m => 
-                    m.id === messageState.assistantId 
+
+          setDocuments(prev => prev.map(doc =>
+            doc.id === activeDocId
+              ? {
+                  ...doc,
+                  chatMessages: doc.chatMessages.map(m =>
+                    m.id === assistantMessageId
                       ? { ...m, content: displayContent }
                       : m
                   ),
-                  updatedAt: Date.now() 
+                  updatedAt: Date.now()
                 }
               : doc
           ));
         },
-        onToolCallStart: () => {
-          // Tool calls are starting - reset streaming content, keep same message bubble
-          console.log('[Stream] Tool call starting, resetting content for summary');
-          streamingChatRef.current = '';
-          messageState.firstTokenReceived = false;
+        // Handle ask_user tool - pause loop and wait for user response
+        onUserQuestionRequest: async (request) => {
+          return new Promise<UserQuestionResponse>((resolve) => {
+            setPendingQuestion(request);
+            questionResolverRef.current = resolve;
+          });
         },
-        onToolCalls: async (toolCalls: ToolCall[]) => {
-          console.log('[Stream] Tool calls received:', toolCalls.length);
+        abortSignal: abortControllerRef.current.signal,
+      });
 
-          // Execute each tool call and collect results
-          const toolResults: ChatMessage[] = [];
-          for (const toolCall of toolCalls) {
-            const result = await executeToolCall(toolCall, messageState.assistantId, currentDate);
-            toolResults.push(result);
-          }
+      console.log('[AgentSystem] Agent loop completed', { success: result.success, followUpCount: result.followUpCount });
 
-          // Update status after searches complete
-          const hadSearches = toolCalls.some(tc => tc.function.name === 'search_web');
-          if (hadSearches) {
-            updateMessageStatus(messageState.assistantId, 'thinking', 'Research done');
-          }
+      // Save final document content
+      let documentTextContent = '';
+      if (editorRefStore.current) {
+        const finalContent = editorRefStore.current.getHTML();
+        documentTextContent = editorRefStore.current.getText();
+        setDocuments(prev => prev.map(doc =>
+          doc.id === activeDocId
+            ? { ...doc, content: finalContent, updatedAt: Date.now() }
+            : doc
+        ));
+      }
 
-          return toolResults;
-        },
-        onFollowUp: () => {
-          // Follow-up after tool execution - reset content for summary, keep same bubble
-          console.log('[Stream] Follow-up starting, resetting content for summary');
-          streamingChatRef.current = '';
-          messageState.firstTokenReceived = false;
-        },
-        onComplete: async () => {
-          console.log('[Stream] onComplete called');
-          try {
-            // Save final document content
-            console.log('[Stream] Saving final document content');
-            let documentTextContent = '';
-            try {
-              if (editorRefStore.current) {
-                const finalContent = editorRefStore.current.getHTML();
-                documentTextContent = editorRefStore.current.getText();
-                setDocuments(prev => prev.map(doc =>
-                  doc.id === activeDocId
-                    ? { ...doc, content: finalContent, updatedAt: Date.now() }
-                    : doc
-                ));
-              }
-            } catch (editorErr) {
-              console.error('[Stream] Error saving document content:', editorErr);
+      // Get final response from the result message
+      const resultTextParts = result.message.parts.filter((p): p is import('../agent/types').TextPart => p.type === 'text');
+      const resultText = resultTextParts.map(p => p.content).join('');
+
+      // Mark complete
+      const finalContent = streamingChatRef.current.trim() || resultText || '';
+      setDocuments(prev => prev.map(doc =>
+        doc.id === activeDocId
+          ? {
+              ...doc,
+              chatMessages: doc.chatMessages.map(m =>
+                m.id === assistantMessageId
+                  ? { ...m, content: finalContent, status: 'done' as const, statusDetail: undefined }
+                  : m
+              ),
+              updatedAt: Date.now()
             }
+          : doc
+      ));
 
-            // Mark complete
-            console.log('[Stream] Marking complete');
-            const finalContent = streamingChatRef.current.trim();
+      // Generate title if needed
+      if (shouldGenerateTitle && documentTextContent.trim()) {
+        try {
+          const aiTitle = await generateTitle(originalUserMessage, documentTextContent);
+          if (aiTitle && aiTitle !== 'Untitled Document') {
             setDocuments(prev => prev.map(doc =>
               doc.id === activeDocId
-                ? {
-                    ...doc,
-                    chatMessages: doc.chatMessages.map(m =>
-                      m.id === messageState.assistantId
-                        ? { ...m, content: finalContent, status: 'done' as const, statusDetail: undefined }
-                        : m
-                    ),
-                    updatedAt: Date.now()
-                  }
+                ? { ...doc, title: aiTitle, updatedAt: Date.now() }
                 : doc
             ));
-
-            // Generate AI title if this was the first message and document has content
-            if (shouldGenerateTitle && documentTextContent.trim()) {
-              console.log('[Stream] Generating AI title for document');
-              try {
-                const aiTitle = await generateTitle(originalUserMessage, documentTextContent);
-                if (aiTitle && aiTitle !== 'Untitled Document') {
-                  setDocuments(prev => prev.map(doc =>
-                    doc.id === activeDocId
-                      ? { ...doc, title: aiTitle, updatedAt: Date.now() }
-                      : doc
-                  ));
-                  console.log('[Stream] AI title generated:', aiTitle);
-                }
-              } catch (titleErr) {
-                console.error('[Stream] Error generating AI title:', titleErr);
-                // Fallback to simple title extraction
-                const fallbackTitle = generateTitleFromMessage(originalUserMessage);
-                if (fallbackTitle !== 'Untitled document') {
-                  setDocuments(prev => prev.map(doc =>
-                    doc.id === activeDocId
-                      ? { ...doc, title: fallbackTitle, updatedAt: Date.now() }
-                      : doc
-                  ));
-                }
+          }
+        } catch (titleErr) {
+          console.error('[AgentSystem] Error generating title:', titleErr);
+          const fallbackTitle = generateTitleFromMessage(originalUserMessage);
+          if (fallbackTitle !== 'Untitled document') {
+            setDocuments(prev => prev.map(doc =>
+              doc.id === activeDocId
+                ? { ...doc, title: fallbackTitle, updatedAt: Date.now() }
+                : doc
+            ));
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[AgentSystem] Error:', err);
+      if (err instanceof Error && err.name === 'AbortError') {
+        // User aborted - keep partial response
+        setDocuments(prev => prev.map(doc =>
+          doc.id === activeDocId
+            ? {
+                ...doc,
+                chatMessages: doc.chatMessages.map(m =>
+                  m.id === assistantMessageId
+                    ? { ...m, content: streamingChatRef.current || '(stopped)', status: 'done' as const, statusDetail: undefined }
+                    : m
+                ),
+                updatedAt: Date.now()
               }
-            }
-          } catch (err) {
-            console.error('[Stream] Error in onComplete handler:', err);
-          } finally {
-            console.log('[Stream] onComplete finally - setting isLoading=false');
-            setIsLoading(false);
-            abortControllerRef.current = null;
-          }
-        },
-        onError: async (err) => {
-          console.log('[Stream] onError called', { 
-            errorName: err.name, 
-            errorMessage: err.message,
-          });
-          try {
-            // Don't show error or remove message if it was aborted by user
-            if (err.name === 'AbortError') {
-              console.log('[Stream] User aborted - keeping partial response');
-              // Keep the partial response, just mark as complete
-              setDocuments(prev => prev.map(doc => 
-                doc.id === activeDocId 
-                  ? { 
-                      ...doc, 
-                      chatMessages: doc.chatMessages.map(m => 
-                        m.id === messageState.assistantId 
-                          ? { ...m, content: streamingChatRef.current || '(stopped)', status: 'done' as const, statusDetail: undefined }
-                          : m
-                      ),
-                      updatedAt: Date.now() 
-                    }
-                  : doc
-              ));
-            } else {
-              console.log('[Stream] Actual error - removing message and showing error');
-              setError(err.message);
-              setDocuments(prev => prev.map(doc => 
-                doc.id === activeDocId 
-                  ? { 
-                      ...doc, 
-                      chatMessages: doc.chatMessages.filter(m => m.id !== messageState.assistantId),
-                      updatedAt: Date.now() 
-                    }
-                  : doc
-              ));
-            }
-          } catch (handlerErr) {
-            console.error('[Stream] Error in onError handler:', handlerErr);
-          } finally {
-            console.log('[Stream] onError finally - setting isLoading=false');
-            setIsLoading(false);
-            abortControllerRef.current = null;
-          }
-        },
-      },
-      selectedModel,
-      abortControllerRef.current.signal,
-      tools,
-      tools ? 'auto' : undefined // Enable tool_choice when tools are available
-    );
-    console.log('[Stream] sendMessageStream returned - isLoading should now be false');
-  }, [activeDocument, activeDocId, isLoading, selectedModel, personaSettings, selectedTemplate, generateTitleFromMessage, executeToolCall]);
-
-  const clearChat = useCallback(() => {
-    setDocuments(prev => prev.map(doc => 
-      doc.id === activeDocId 
-        ? { ...doc, chatMessages: [], updatedAt: Date.now() }
-        : doc
-    ));
-    setError(null);
-  }, [activeDocId]);
+            : doc
+        ));
+      } else {
+        setError(err instanceof Error ? err.message : 'Unknown error');
+        setDocuments(prev => prev.map(doc =>
+          doc.id === activeDocId
+            ? {
+                ...doc,
+                chatMessages: doc.chatMessages.filter(m => m.id !== assistantMessageId),
+                updatedAt: Date.now()
+              }
+            : doc
+        ));
+      }
+    } finally {
+      setIsLoading(false);
+      abortControllerRef.current = null;
+    }
+  }, [activeDocument, activeDocId, isLoading, selectedModel, personaSettings, selectedTemplate, generateTitleFromMessage]);
 
   const stopGeneration = useCallback(() => {
     if (abortControllerRef.current) {
@@ -2247,5 +1346,10 @@ CRITICAL INSTRUCTIONS:
     clearChat,
     stopGeneration,
     performSearch,
+    // Plan mode state
+    currentTodos,
+    todoProgress,
+    pendingQuestion,
+    answerQuestion,
   };
 }

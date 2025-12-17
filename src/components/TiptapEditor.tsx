@@ -252,6 +252,8 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
           heading: {
             levels: [1, 2, 3, 4, 5, 6],
           },
+          link: false,      // Disable to avoid duplicate with explicit Link.configure()
+          underline: false, // Disable to avoid duplicate with explicit Underline
         }),
         TextStyle,
         Color,

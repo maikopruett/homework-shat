@@ -26,6 +26,11 @@ export default function App() {
     sendMessage,
     stopGeneration,
     performSearch,
+    // Plan mode state
+    currentTodos,
+    todoProgress,
+    pendingQuestion,
+    answerQuestion,
   } = useDocuments();
 
   return (
@@ -53,6 +58,11 @@ export default function App() {
       onSelectTemplate={setSelectedTemplate}
       onSaveAsTemplate={saveAsTemplate}
       onDeleteTemplate={deleteTemplate}
+      // Plan mode props
+      todos={currentTodos}
+      todoProgress={todoProgress}
+      pendingQuestion={pendingQuestion}
+      onAnswerQuestion={answerQuestion}
     />
   );
 }
