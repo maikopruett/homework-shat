@@ -1,13 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { generateTitle, DEFAULT_MODEL } from '../api/openrouter';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
-import { searchExa, formatSearchResultsForAI, type SearchResult } from '../api/exa';
+import { searchExa, type SearchResult } from '../api/exa';
 
 // Agent system imports
 import { runAgentLoop } from '../agent/Loop';
 import { createAgentConfig, getPresetForMode } from '../agent/Agent';
 import type { ToolStatus, Todo, UserQuestionRequest, UserQuestionResponse } from '../agent/types';
 import { detectPlanMode, getPlanModeInstructions } from '../agent/planDetector';
+
+// Model-specific prompts system
+import { buildSystemPrompt, type PromptContext, type PersonaSettings as PromptPersonaSettings } from '../prompts';
 
 export type MessageStatus = 'thinking' | 'reading' | 'searching' | 'writing' | 'formatting' | 'done';
 
@@ -643,115 +646,9 @@ function generateTemplateInstructions(htmlContent: string): string {
   return instructions.join('\n');
 }
 
-// ==================== SYSTEM PROMPT CONFIGURATION ====================
-// Edit these once - they apply to both default and persona modes
-
-const PROMPT_CONFIG = {
-  // Personal info placeholder rules
-  personalInfo: `Use placeholders for unknown details: [Your Name], [Professor's Name], [Class Name], [Institution Name]. Always use the current date from system context.`,
-
-  // Default writing style (used when no persona is active)
-  defaultWritingStyle: `
-- Vary sentence length dramatically (burstiness). Mix short fragments with long sprawling sentences.
-- Hedge: "I think," "probably," "it seems like," "from what I can tell"
-- NEVER use em-dashes (—) or en-dashes (–)
-- Skip transitions: no "Furthermore," "Moreover," "In conclusion," "Additionally"
-- Use first-person opinions naturally
-- Be specific, not generic. Cite stats once, then refer loosely.
-- Start with facts or questions, not "Throughout history..." or "X has fascinated humans..."
-- No meta-commentary: never say "This essay will explore..." or "Let's dive into..."`,
-
-  // Banned words/phrases (applies to default mode, persona mode uses reference style)
-  bannedWords: `delve, innovative, captivating, leverage, multifaceted, comprehensive, crucial, foster, landscape, myriad, nuanced, paradigm, plethora, realm, robust, seamless, synergy, tapestry, underscore, utilize, vibrant, vital, pivotal, groundbreaking, cutting-edge, "game-changer", "at its core"`,
-
-  // Workflow rules (applies to both modes)
-  workflow: `<response_format>
-Call tools silently. After all tools complete, provide ONE brief summary (under 20 words).
-No acknowledgement before tools. No narration during tools. Just the final result.
-</response_format>
-
-<rules>
-- read_document before edits, search_web before citations, clear_document before rewrites
-- Output ONLY the final summary after tools complete - nothing before or during
-</rules>
-
-<forbidden>
-- No "Got it", "Sure", "I'll", or any acknowledgement before tools
-- No "Thinking...", "Working...", "Proceeding..." status narration
-- No text output until all tool calls are complete
-</forbidden>`,
-
-  // Chat mode base rules
-  chatModeRules: `You can see the document but CANNOT edit it. Suggest switching to Edit mode for changes.
-Be direct and casual. Skip filler. Hedge sometimes ("I think," "probably"). Vary sentence length. No em-dashes.`,
-};
-
-// ==================== GENERATED SYSTEM PROMPTS ====================
-
-const SYSTEM_PROMPT = `You are a document editor assistant with direct tool access.
-
-## Personal Info
-${PROMPT_CONFIG.personalInfo}
-
-## Writing Style (Sound Human)
-${PROMPT_CONFIG.defaultWritingStyle}
-
-BANNED: ${PROMPT_CONFIG.bannedWords}
-
-## Workflow
-${PROMPT_CONFIG.workflow}`;
-
-const CHAT_MODE_SYSTEM_PROMPT = `You're a writing assistant in chat-only mode. ${PROMPT_CONFIG.chatModeRules}
-
-No AI buzzwords (${PROMPT_CONFIG.bannedWords.split(', ').slice(0, 5).join(', ')}, etc.).`;
-
-// Helper to build student info section for prompts
-function buildStudentInfoSection(persona: PersonaSettings): string {
-  const hasStudentInfo = persona.firstName || persona.lastName || persona.teacherName || persona.className;
-  if (!hasStudentInfo) return '';
-
-  const fullName = `${persona.firstName || ''} ${persona.lastName || ''}`.trim();
-  let section = '\n## Student Information\n';
-  section += `- Student Name: ${fullName || '[Your Name]'}\n`;
-  if (persona.teacherName) {
-    section += `- Teacher/Professor: ${persona.teacherName}\n`;
-  }
-  if (persona.className) {
-    section += `- Class: ${persona.className}\n`;
-  }
-  section += '\nWhen writing essays, use this student\'s actual name and class information instead of placeholders.\n';
-  return section;
-}
-
-// Function to generate persona-aware system prompt
-function generatePersonaSystemPrompt(persona: PersonaSettings): string {
-  const studentInfo = buildStudentInfoSection(persona);
-
-  return `You are a document editor that writes EXACTLY like the person below. Mimic their vocabulary, sentence patterns, tone, punctuation, and structure precisely.
-${studentInfo}
-## Reference Document (mimic this style):
-${persona.documentContent}
-
-## Rules
-- ${PROMPT_CONFIG.personalInfo}
-- Match their formality level, sentence rhythm, and vocabulary exactly. Don't upgrade or downgrade.
-- NEVER use em-dashes unless the reference uses them.
-
-## Workflow
-${PROMPT_CONFIG.workflow}`;
-}
-
-// Function to generate persona-aware chat mode prompt
-function generatePersonaChatPrompt(persona: PersonaSettings): string {
-  const studentInfo = buildStudentInfoSection(persona);
-
-  return `Chat-only mode. ${PROMPT_CONFIG.chatModeRules}
-${studentInfo}
-Communicate in the style of this reference document:
-${persona.documentContent}
-
-Match their tone, vocabulary, and sentence patterns exactly.`;
-}
+// System prompts are now in src/prompts/ module
+// See: src/prompts/models/claude.ts, grok.ts, minimax.ts for model-specific prompts
+// See: src/prompts/builder.ts for prompt composition logic
 
 export type ChatMode = 'chat' | 'edit';
 
@@ -1061,16 +958,11 @@ export function useDocuments() {
     // Build context for the agent
     const documentContext = editorRef.current?.getText() || activeDocument.content;
 
-    // Choose system prompt based on persona
-    let basePrompt: string;
-    if (personaSettings && personaSettings.documentContent) {
-      basePrompt = mode === 'edit'
-        ? generatePersonaSystemPrompt(personaSettings)
-        : generatePersonaChatPrompt(personaSettings);
-    } else {
-      basePrompt = mode === 'edit' ? SYSTEM_PROMPT : CHAT_MODE_SYSTEM_PROMPT;
-    }
+    // Detect plan mode for essay writing (needed for prompt context)
+    const planDetection = detectPlanMode(content);
+    const usePlanMode = mode === 'edit' && planDetection.shouldUsePlanMode;
 
+    // Build current date string
     const today = new Date();
     const currentDate = today.toLocaleDateString('en-US', {
       year: 'numeric',
@@ -1078,22 +970,34 @@ export function useDocuments() {
       day: 'numeric'
     });
 
+    // Extract document styling
     let stylingContext = '';
     if (editorRef.current) {
       const stylingInfo = extractDocumentStyling(editorRef.current);
       stylingContext = formatStylingForAI(stylingInfo);
     }
 
-    let systemContent = `${basePrompt}\n\nToday's Date: ${currentDate}\n\nDocument Title: "${activeDocument.title}"\n\nCurrent Document Content:\n${documentContext || '(empty document)'}\n\n${stylingContext}`;
+    // Build model-specific system prompt using new prompts system
+    const promptContext: PromptContext = {
+      modelId: selectedModel,
+      mode,
+      persona: personaSettings as PromptPersonaSettings | null,
+      documentTitle: activeDocument.title,
+      documentContent: documentContext || '(empty document)',
+      documentStyling: stylingContext || undefined,
+      searchResults: preSearchResults?.map(r => ({
+        title: r.title,
+        url: r.url,
+        snippet: r.snippet,
+        publishedDate: r.publishedDate,
+        author: r.author,
+      })),
+      template: selectedTemplate || undefined,
+      currentDate,
+      planModeInstructions: usePlanMode ? getPlanModeInstructions() : undefined,
+    };
 
-    if (preSearchResults && preSearchResults.length > 0) {
-      const formattedResults = formatSearchResultsForAI(preSearchResults);
-      systemContent += `\n\n## Research Results (use these for citations):\n${formattedResults}\n\nIMPORTANT: Use the research results above to support your writing with accurate information and proper citations. Include URLs when citing sources. For "Accessed" dates in citations, use today's date: ${currentDate}.`;
-    }
-
-    if (selectedTemplate) {
-      systemContent += `\n\n## TEMPLATE TO FOLLOW (CRITICAL)\n\nYou MUST follow this template exactly when writing. Match the structure, formatting, fonts, sizes, alignment, and spacing.\n\n### Template: ${selectedTemplate.name}\n\n${selectedTemplate.formattingInstructions}\n\nCRITICAL INSTRUCTIONS:\n1. Follow the EXACT structure shown in the formatting instructions above\n2. Use format_text tool calls to apply fonts, sizes, and alignments EXACTLY as specified\n3. Write content first, then apply formatting using the tool calls\n4. Replace placeholder text with actual content while applying the exact formatting specified`;
-    }
+    const systemContent = buildSystemPrompt(promptContext);
 
     // Create placeholder assistant message
     const assistantMessage: DocChatMessage = {
@@ -1111,16 +1015,10 @@ export function useDocuments() {
         : doc
     ));
 
-    // Detect plan mode for essay writing
-    const planDetection = detectPlanMode(content);
-    const usePlanMode = mode === 'edit' && planDetection.shouldUsePlanMode;
-
     // Create agent config based on mode and plan detection
     let presetKey = getPresetForMode(mode);
     if (usePlanMode) {
       presetKey = 'essay_planner';
-      // Add plan mode instructions to system prompt
-      systemContent += '\n\n' + getPlanModeInstructions();
     }
 
     const agentConfig = createAgentConfig(presetKey, {
