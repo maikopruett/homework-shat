@@ -11,9 +11,17 @@ export interface ModelInfo {
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
   { id: 'anthropic/claude-haiku-4.5', name: 'Haiku 4.5', provider: 'Anthropic', isBest: true, isDefault: true },
+  { id: 'google/gemini-3-flash-preview', name: 'Gemini Flash', provider: 'Google', isFastest: true},
 ];
 
 export const DEFAULT_MODEL = AVAILABLE_MODELS.find(m => m.isDefault)?.id || AVAILABLE_MODELS[0].id;
+
+// Reasoning detail types per OpenRouter docs
+// https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+export type ReasoningDetail =
+  | { type: 'reasoning.summary'; summary: string; id?: string | null; format?: string; index?: number }
+  | { type: 'reasoning.encrypted'; data: string; id?: string | null; format?: string; index?: number }
+  | { type: 'reasoning.text'; text: string; signature?: string | null; id?: string | null; format?: string; index?: number };
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -21,6 +29,7 @@ export interface ChatMessage {
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   name?: string;
+  reasoning_details?: ReasoningDetail[]; // For reasoning models - must be preserved for tool calling follow-ups
 }
 
 /**
@@ -94,6 +103,7 @@ export interface ToolCall {
     name: string;
     arguments: string;
   };
+  thoughtSignature?: string; // For Gemini models - must be preserved for tool calling follow-ups
 }
 
 export interface StreamMetrics {
@@ -101,6 +111,7 @@ export interface StreamMetrics {
   tps: number;  // Tokens per second
   totalTokens: number;
   totalTime: number; // Total generation time in ms
+  reasoningDetails?: ReasoningDetail[]; // For reasoning models - required for tool calling follow-ups
 }
 
 export interface StreamCallbacks {
@@ -146,6 +157,8 @@ interface ToolCallDelta {
     name?: string;
     arguments?: string;
   };
+  thoughtSignature?: string; // Gemini direct format
+  extra_content?: { google?: { thought_signature?: string } }; // OpenRouter format
 }
 
 function accumulateToolCallDelta(
@@ -153,7 +166,10 @@ function accumulateToolCallDelta(
   delta: ToolCallDelta
 ): void {
   const existing = accumulated.get(delta.index);
-  
+
+  // Extract thoughtSignature from either direct field or OpenRouter's extra_content
+  const thoughtSignature = delta.thoughtSignature || delta.extra_content?.google?.thought_signature;
+
   if (!existing) {
     // New tool call
     accumulated.set(delta.index, {
@@ -163,12 +179,14 @@ function accumulateToolCallDelta(
         name: delta.function?.name || '',
         arguments: delta.function?.arguments || '',
       },
+      thoughtSignature,
     });
   } else {
     // Accumulate into existing
     if (delta.id) existing.id = delta.id;
     if (delta.function?.name) existing.function.name += delta.function.name;
     if (delta.function?.arguments) existing.function.arguments += delta.function.arguments;
+    if (thoughtSignature) existing.thoughtSignature = thoughtSignature;
   }
 }
 
@@ -181,7 +199,8 @@ export async function sendMessageStream(
   tool_choice?: ToolChoice,
   parallel_tool_calls?: boolean
 ): Promise<void> {
-  console.log('[API] sendMessageStream called', { model, messageCount: messages.length, hasTools: !!tools, toolCount: tools?.length, tool_choice });
+  const isGemini = model.includes('gemini');
+  console.log('[API] sendMessageStream called', { model, messageCount: messages.length, hasTools: !!tools, toolCount: tools?.length, tool_choice, isGemini });
   const startTime = performance.now();
   let firstTokenTime: number | null = null;
   let tokenCount = 0;
@@ -196,7 +215,17 @@ export async function sendMessageStream(
       max_tokens: 4096,
       stream: true
     };
-    
+
+    // Enable reasoning for models that support it (Gemini, Anthropic Claude 3.7+, etc.)
+    // This is REQUIRED for Gemini to return reasoning_details which must be preserved for tool calling
+    if (isGemini && tools && tools.length > 0) {
+      // Enable reasoning with default settings - required for tool calling to work
+      requestBody.reasoning = {
+        effort: 'medium'
+      };
+      console.log('[API] Enabled reasoning for Gemini model with tool calling');
+    }
+
     // Add tools if provided
     if (tools && tools.length > 0) {
       requestBody.tools = tools;
@@ -242,6 +271,7 @@ export async function sendMessageStream(
     let finishReason: string | null = null;
     let accumulatedContent = '';
     let toolCallStartSignaled = false; // Track if we've signaled tool call start
+    let accumulatedReasoningDetails: ReasoningDetail[] = []; // For reasoning models
 
     while (true) {
       // Add timeout to stream reads to prevent infinite hangs
@@ -318,6 +348,8 @@ export async function sendMessageStream(
                 for (let i = 0; i < messageToolCalls.length; i++) {
                   const tc = messageToolCalls[i];
                   if (tc.id && tc.function?.name) {
+                    // Extract thoughtSignature from either direct field or OpenRouter's extra_content
+                    const thoughtSignature = tc.thoughtSignature || tc.extra_content?.google?.thought_signature;
                     accumulatedToolCalls.set(i, {
                       id: tc.id,
                       type: 'function',
@@ -325,6 +357,7 @@ export async function sendMessageStream(
                         name: tc.function.name,
                         arguments: tc.function.arguments || '',
                       },
+                      thoughtSignature,
                     });
                   }
                 }
@@ -333,6 +366,29 @@ export async function sendMessageStream(
               // Track finish reason
               if (choice.finish_reason) {
                 finishReason = choice.finish_reason;
+              }
+
+              // Capture reasoning_details for reasoning models (required for tool calling follow-ups)
+              // OpenRouter normalizes to reasoning_details, but log the full choice for debugging
+              const deltaReasoningDetails = choice.delta?.reasoning_details;
+              const messageReasoningDetails = choice.message?.reasoning_details;
+
+              // Debug: Log if we see any reasoning-related fields
+              if (choice.delta && Object.keys(choice.delta).some(k => k.includes('reason') || k.includes('think') || k.includes('thought'))) {
+                console.log('[API] Reasoning-related delta fields:', Object.keys(choice.delta));
+              }
+              if (choice.message && Object.keys(choice.message).some(k => k.includes('reason') || k.includes('think') || k.includes('thought'))) {
+                console.log('[API] Reasoning-related message fields:', Object.keys(choice.message));
+              }
+
+              if (deltaReasoningDetails && Array.isArray(deltaReasoningDetails)) {
+                console.log('[API] Captured delta reasoning_details:', deltaReasoningDetails.length, 'items');
+                accumulatedReasoningDetails.push(...deltaReasoningDetails);
+              }
+              if (messageReasoningDetails && Array.isArray(messageReasoningDetails)) {
+                console.log('[API] Captured message reasoning_details:', messageReasoningDetails.length, 'items');
+                // For non-streaming format, replace accumulated
+                accumulatedReasoningDetails = messageReasoningDetails;
               }
             }
           } catch {
@@ -348,11 +404,14 @@ export async function sendMessageStream(
     const generationTime = endTime - (firstTokenTime || startTime);
     const tps = generationTime > 0 ? (tokenCount / generationTime) * 1000 : 0;
 
-    console.log('[API] Stream finished', { 
-      finishReason, 
+    console.log('[API] Stream finished', {
+      finishReason,
       accumulatedToolCallsCount: accumulatedToolCalls.size,
       hasOnToolCalls: !!callbacks.onToolCalls,
       toolCallNames: Array.from(accumulatedToolCalls.values()).map(tc => tc.function.name),
+      toolCallsWithSignatures: Array.from(accumulatedToolCalls.values()).filter(tc => tc.thoughtSignature).length,
+      reasoningDetailsCount: accumulatedReasoningDetails.length,
+      hasReasoningDetails: accumulatedReasoningDetails.length > 0,
     });
 
     // Handle tool calls if present - check for various finish reasons
@@ -370,6 +429,7 @@ export async function sendMessageStream(
         role: 'assistant',
         content: accumulatedContent || null,
         tool_calls: toolCalls,
+        reasoning_details: accumulatedReasoningDetails.length > 0 ? accumulatedReasoningDetails : undefined,
       };
       
       const newMessages = [...messages, assistantMessage, ...toolResults];
@@ -398,7 +458,8 @@ export async function sendMessageStream(
       ttft: Math.round(ttft),
       tps: Math.round(tps * 10) / 10,
       totalTokens: tokenCount,
-      totalTime: Math.round(totalTime)
+      totalTime: Math.round(totalTime),
+      reasoningDetails: accumulatedReasoningDetails.length > 0 ? accumulatedReasoningDetails : undefined,
     }));
     console.log('[API] onComplete finished');
   } catch (err) {

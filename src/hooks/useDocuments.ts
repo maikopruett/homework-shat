@@ -6,7 +6,7 @@ import { searchExa, type SearchResult } from '../api/exa';
 // Agent system imports
 import { runAgentLoop } from '../agent/Loop';
 import { createAgentConfig, getPresetForMode } from '../agent/Agent';
-import type { ToolStatus, Todo, UserQuestionRequest, UserQuestionResponse, MessagePart, TextPart } from '../agent/types';
+import type { ToolStatus, Todo, UserQuestionRequest, UserQuestionResponse, MessagePart, TextPart, MessageMetadata, Message } from '../agent/types';
 // Plan detection removed - mode is now explicitly controlled via toggle
 
 // Model-specific prompts system
@@ -24,6 +24,7 @@ export interface DocChatMessage {
   parts: MessagePart[];  // Message parts (text, tool calls, tool results)
   timestamp: number;
   isStreaming?: boolean;  // True while message is being generated
+  metadata?: MessageMetadata;  // For reasoning models - stores reasoning_details for follow-up calls
 }
 
 // Helper to get text content from message parts
@@ -46,6 +47,17 @@ interface LegacyDocChatMessage {
   isStreaming?: boolean;
 }
 
+// Convert DocChatMessage to agent Message format (for passing history to agent loop)
+function docChatMessageToAgentMessage(msg: DocChatMessage): Message {
+  return {
+    id: msg.id,
+    role: msg.role,
+    parts: msg.parts,
+    timestamp: msg.timestamp,
+    metadata: msg.metadata,
+  };
+}
+
 // Migrate legacy message format to new parts-based format
 function migrateDocChatMessage(msg: LegacyDocChatMessage): DocChatMessage {
   // Already migrated - has parts array
@@ -56,6 +68,8 @@ function migrateDocChatMessage(msg: LegacyDocChatMessage): DocChatMessage {
       parts: msg.parts,
       timestamp: msg.timestamp,
       isStreaming: msg.isStreaming ?? false,
+      // Preserve metadata (contains reasoning_details for Gemini tool calling)
+      metadata: (msg as unknown as DocChatMessage).metadata,
     };
   }
 
@@ -969,11 +983,15 @@ export function useDocuments() {
       systemPrompt: systemContent,
     });
 
-    // Create session for the agent
+    // Convert previous chat messages to agent Message format
+    // This preserves reasoning_details from previous turns for models like Gemini
+    const previousMessages = activeDocument.chatMessages.map(docChatMessageToAgentMessage);
+
+    // Create session for the agent with conversation history
     const agentSession = {
       id: crypto.randomUUID(),
       agentConfig,
-      messages: [] as import('../agent/types').Message[],
+      messages: previousMessages,
       todos: [] as import('../agent/types').Todo[],
       status: 'active' as const,
       createdAt: Date.now(),
@@ -1054,7 +1072,7 @@ export function useDocuments() {
               ...doc,
               chatMessages: doc.chatMessages.map(m =>
                 m.id === assistantMessageId
-                  ? { ...m, parts: [...result.message.parts], isStreaming: false }
+                  ? { ...m, parts: [...result.message.parts], metadata: result.message.metadata, isStreaming: false }
                   : m
               ),
               updatedAt: Date.now()

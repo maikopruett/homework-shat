@@ -131,6 +131,7 @@ export interface ToolCallPart {
   toolId: string;
   arguments: unknown;
   status: ToolStatus;
+  thoughtSignature?: string; // For Gemini models - must be preserved for tool calling follow-ups
 }
 
 export interface ToolResultPart {
@@ -141,12 +142,20 @@ export interface ToolResultPart {
   error?: string;
 }
 
+// Reasoning detail types per OpenRouter docs
+// https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+export type ReasoningDetail =
+  | { type: 'reasoning.summary'; summary: string; id?: string | null; format?: string; index?: number }
+  | { type: 'reasoning.encrypted'; data: string; id?: string | null; format?: string; index?: number }
+  | { type: 'reasoning.text'; text: string; signature?: string | null; id?: string | null; format?: string; index?: number };
+
 export interface MessageMetadata {
   model?: string;
   tokenCount?: number;
   finishReason?: string;
   ttft?: number;  // Time to first token
   tps?: number;   // Tokens per second
+  reasoningDetails?: ReasoningDetail[]; // For reasoning models - required for tool calling follow-ups
 }
 
 // ==================== Document Types ====================

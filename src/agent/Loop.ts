@@ -70,7 +70,7 @@ function buildMessageHistory(
 
   // Previous messages from session
   for (const msg of session.messages) {
-    if (msg.role === 'user' || msg.role === 'assistant') {
+    if (msg.role === 'user') {
       const textContent = msg.parts
         .filter((p): p is TextPart => p.type === 'text')
         .map((p) => p.content)
@@ -78,8 +78,43 @@ function buildMessageHistory(
 
       if (textContent) {
         messages.push({
-          role: msg.role,
+          role: 'user',
           content: textContent,
+        });
+      }
+    } else if (msg.role === 'assistant') {
+      const textContent = msg.parts
+        .filter((p): p is TextPart => p.type === 'text')
+        .map((p) => p.content)
+        .join('');
+
+      // Check if this assistant message had tool calls
+      const toolCallParts = msg.parts.filter(
+        (p): p is ToolCallPart => p.type === 'tool_call'
+      );
+
+      if (toolCallParts.length > 0) {
+        // Assistant message with tool calls - must preserve reasoning_details and thoughtSignature for Gemini
+        messages.push({
+          role: 'assistant',
+          content: textContent || null,
+          tool_calls: toolCallParts.map((part) => ({
+            id: part.callId,
+            type: 'function' as const,
+            function: {
+              name: part.toolId,
+              arguments: JSON.stringify(part.arguments),
+            },
+            thoughtSignature: part.thoughtSignature, // Preserve for Gemini
+          })),
+          reasoning_details: msg.metadata?.reasoningDetails,
+        });
+      } else if (textContent) {
+        // Regular assistant message without tool calls
+        messages.push({
+          role: 'assistant',
+          content: textContent,
+          reasoning_details: msg.metadata?.reasoningDetails,
         });
       }
     }
@@ -170,7 +205,7 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
   const openRouterTools = supportsTools ? toolRegistry.toOpenRouterFormat(availableTools) : [];
 
   // Build initial message history
-  let messages = buildMessageHistory(session, userMessage, systemPrompt);
+  const messages = buildMessageHistory(session, userMessage, systemPrompt);
 
   let followUpCount = 0;
   let totalToolCalls = 0;
@@ -197,9 +232,7 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
         };
       }
 
-      let hasToolCalls = false;
       let currentTextContent = '';
-      const toolCallsThisRound: ToolCall[] = [];
 
       // Stream the response
       await sendMessageStream(
@@ -228,8 +261,6 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
           },
 
           onToolCalls: async (toolCalls) => {
-            hasToolCalls = true;
-            toolCallsThisRound.push(...toolCalls);
             totalToolCalls += toolCalls.length;
 
             // Helper function to execute a single tool call
@@ -254,6 +285,7 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
                   status: 'pending',
                   title: `Calling ${name}...`,
                 },
+                thoughtSignature: toolCall.thoughtSignature, // Preserve for Gemini
               };
               assistantMessage.parts.push(toolCallPart);
               onMessageUpdate(assistantMessage);
@@ -401,6 +433,7 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
               ttft: metrics?.ttft,
               tps: metrics?.tps,
               tokenCount: metrics?.totalTokens,
+              reasoningDetails: metrics?.reasoningDetails, // For reasoning models
             };
           },
 
@@ -418,29 +451,27 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
         agentConfig.toolCallingOptions?.parallel_tool_calls
       );
 
-      // If no tool calls were made, we're done
-      if (!hasToolCalls) {
-        // Validate formatting if template is selected (silent auto-correction)
-        if (options.template && options.editor) {
-          const validation = validateFormatting(options.editor, options.template);
+      // Tool call follow-ups are handled internally by sendMessageStream via recursion.
+      // After sendMessageStream completes, we're done with this turn.
+      // Validate formatting if template is selected (silent auto-correction)
+      if (options.template && options.editor) {
+        const validation = validateFormatting(options.editor, options.template);
 
-          if (!validation.isValid && validation.corrections.length > 0) {
-            // Create tool context for corrections
-            const ctx = createToolContext(options, (status) => {
-              onStatusUpdate(status);
-              onMessageUpdate(assistantMessage);
-            });
+        if (!validation.isValid && validation.corrections.length > 0) {
+          // Create tool context for corrections
+          const ctx = createToolContext(options, (status) => {
+            onStatusUpdate(status);
+            onMessageUpdate(assistantMessage);
+          });
 
-            // Execute corrections silently
-            for (const correction of validation.corrections) {
-              await toolRegistry.execute(correction.toolId, correction.params, ctx);
-            }
+          // Execute corrections silently
+          for (const correction of validation.corrections) {
+            await toolRegistry.execute(correction.toolId, correction.params, ctx);
           }
         }
-        break;
       }
 
-      // Check if we've hit the limit
+      // Check if we've hit the limit (followUpCount is incremented by onFollowUp callback)
       if (followUpCount >= maxFollowUps) {
         console.log(`[AgentLoop] Max follow-ups (${maxFollowUps}) reached`);
 
@@ -449,41 +480,10 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
           type: 'text',
           content: `\n\n(Reached maximum ${maxFollowUps} tool execution cycles)`,
         });
-        break;
       }
 
-      // Rebuild messages with tool results for follow-up
-      messages = buildMessageHistory(session, userMessage, systemPrompt);
-
-      // Add the assistant message with tool_calls from this round
-      const toolCallParts = assistantMessage.parts.filter(
-        (p): p is ToolCallPart => p.type === 'tool_call'
-      );
-      if (toolCallParts.length > 0) {
-        messages.push({
-          role: 'assistant',
-          content: null,
-          tool_calls: toolCallParts.map((part) => ({
-            id: part.callId,
-            type: 'function' as const,
-            function: {
-              name: part.toolId,
-              arguments: JSON.stringify(part.arguments),
-            },
-          })),
-        });
-      }
-
-      // Add the tool results from this round
-      for (const part of assistantMessage.parts) {
-        if (part.type === 'tool_result') {
-          messages.push({
-            role: 'tool',
-            tool_call_id: part.callId,
-            content: JSON.stringify(part.result ?? { error: part.error }),
-          });
-        }
-      }
+      // Exit the loop - all follow-ups are handled by sendMessageStream internally
+      break;
     }
 
     return {

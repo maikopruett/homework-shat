@@ -528,6 +528,7 @@ export default function ChatSidebar({
                   <MessagePartsRenderer
                     parts={msg.parts}
                     isStreaming={msg.isStreaming}
+                    metadata={msg.metadata}
                   />
                 </div>
               )}

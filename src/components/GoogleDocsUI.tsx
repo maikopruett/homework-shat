@@ -2342,7 +2342,10 @@ ${html}
           todoProgress={todoProgress}
           pendingQuestion={pendingQuestion}
           onAnswerQuestion={onAnswerQuestion}
-          onBuildEssay={() => onBuildEssay(editorRef)}
+          onBuildEssay={() => {
+            setChatMode('edit');
+            onBuildEssay(editorRef);
+          }}
           ghostModeEnabled={ghostModeEnabled}
         />
       </div>

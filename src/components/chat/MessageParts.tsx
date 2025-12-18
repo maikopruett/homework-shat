@@ -7,15 +7,16 @@
 
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import type { MessagePart, TextPart, ToolCallPart, ToolResultPart } from '../../agent/types';
+import type { MessagePart, TextPart, ToolCallPart, ToolResultPart, MessageMetadata, ReasoningDetail } from '../../agent/types';
 import { getToolDisplayInfo, formatArgsPreview } from '../../agent/toolDisplayInfo';
-import { Check, X, Circle } from 'lucide-react';
+import { Check, X, Circle, Brain } from 'lucide-react';
 
 // ==================== Props ====================
 
 interface MessagePartsProps {
   parts: MessagePart[];
   isStreaming?: boolean;
+  metadata?: MessageMetadata;
 }
 
 interface PartRendererProps {
@@ -29,7 +30,7 @@ interface PartRendererProps {
 /**
  * Renders all parts of an assistant message.
  */
-export function MessagePartsRenderer({ parts, isStreaming }: MessagePartsProps) {
+export function MessagePartsRenderer({ parts, isStreaming, metadata }: MessagePartsProps) {
   // Build a map of tool results by callId for pairing with tool calls
   const resultsByCallId = new Map<string, ToolResultPart>();
   for (const part of parts) {
@@ -54,8 +55,16 @@ export function MessagePartsRenderer({ parts, isStreaming }: MessagePartsProps) 
     );
   }
 
+  // Check if we have reasoning details to display
+  const reasoningDetails = metadata?.reasoningDetails;
+  const hasReasoning = reasoningDetails && reasoningDetails.length > 0;
+
   return (
     <div className="flex flex-col gap-2">
+      {/* Show reasoning details first (collapsed by default) */}
+      {hasReasoning && (
+        <ReasoningDetailsDisplay details={reasoningDetails} />
+      )}
       {renderableParts.map((part, index) => (
         <PartRenderer key={index} part={part} resultsByCallId={resultsByCallId} />
       ))}
@@ -184,6 +193,94 @@ function ToolCallDisplay({ part, result }: ToolCallDisplayProps) {
               >
                 {result.error || JSON.stringify(result.result, null, 2)}
               </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== Reasoning Details ====================
+
+interface ReasoningDetailsDisplayProps {
+  details: ReasoningDetail[];
+}
+
+/**
+ * Displays reasoning details from reasoning models (Gemini, Claude 3.7+, etc.)
+ * Shows as a collapsible box similar to tool calls.
+ */
+function ReasoningDetailsDisplay({ details }: ReasoningDetailsDisplayProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Extract readable text from reasoning details
+  const reasoningText = details.map((detail) => {
+    if (detail.type === 'reasoning.text') {
+      return detail.text;
+    } else if (detail.type === 'reasoning.summary') {
+      return detail.summary;
+    } else if (detail.type === 'reasoning.encrypted') {
+      return '[Encrypted reasoning]';
+    }
+    return '';
+  }).filter(Boolean).join('\n\n');
+
+  // Count the different types
+  const textCount = details.filter(d => d.type === 'reasoning.text').length;
+  const summaryCount = details.filter(d => d.type === 'reasoning.summary').length;
+  const encryptedCount = details.filter(d => d.type === 'reasoning.encrypted').length;
+
+  // Build preview text
+  let previewText = `${details.length} reasoning block${details.length !== 1 ? 's' : ''}`;
+  if (textCount > 0 || summaryCount > 0) {
+    const wordCount = reasoningText.split(/\s+/).length;
+    previewText = `${wordCount} words`;
+  }
+
+  return (
+    <div className="rounded-lg border border-purple-200 bg-purple-50 overflow-hidden">
+      {/* Clickable header */}
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 w-full px-3 py-2 text-left text-sm hover:bg-black/5 transition-colors"
+      >
+        {/* Brain icon */}
+        <Brain className="w-4 h-4 text-purple-600 shrink-0" />
+
+        {/* Label */}
+        <span className="font-medium text-purple-700">Reasoning</span>
+
+        {/* Preview */}
+        <span className="text-purple-500 truncate flex-1 text-xs">
+          {previewText}
+          {encryptedCount > 0 && ` (${encryptedCount} encrypted)`}
+        </span>
+
+        {/* Expand chevron */}
+        <ChevronIcon expanded={expanded} />
+      </button>
+
+      {/* Expandable details */}
+      {expanded && (
+        <div className="px-3 pb-3 pt-1 border-t border-purple-200/50">
+          {reasoningText ? (
+            <div className="text-xs text-purple-800 bg-white/50 rounded p-2 whitespace-pre-wrap max-h-64 overflow-y-auto">
+              {reasoningText}
+            </div>
+          ) : (
+            <div className="text-xs text-purple-600 italic">
+              Reasoning content is encrypted and cannot be displayed.
+            </div>
+          )}
+
+          {/* Show detail type breakdown if multiple types */}
+          {(textCount > 0 || summaryCount > 0 || encryptedCount > 0) && (
+            <div className="mt-2 flex gap-2 text-xs text-purple-500">
+              {textCount > 0 && <span>{textCount} text</span>}
+              {summaryCount > 0 && <span>{summaryCount} summary</span>}
+              {encryptedCount > 0 && <span>{encryptedCount} encrypted</span>}
             </div>
           )}
         </div>
