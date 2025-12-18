@@ -504,8 +504,8 @@ export default function ChatSidebar({
                   />
                 </div>
               )}
-              {/* Streaming status indicator */}
-              {msg.role === 'assistant' && msg.isStreaming && (
+              {/* Streaming status indicator - only show when there are parts (to avoid duplicate with MessagePartsRenderer's initial "Thinking..." state) */}
+              {msg.role === 'assistant' && msg.isStreaming && msg.parts.length > 0 && (
                 <StreamingStatus parts={msg.parts} />
               )}
             </div>
