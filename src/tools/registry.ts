@@ -6,6 +6,7 @@ import type {
   ToolResult,
   AgentConfig,
   OpenRouterToolDefinition,
+  JsonSchemaProperty,
 } from '../agent/types';
 
 // Generic tool spec for registry storage (erases specific param/result types)
@@ -345,7 +346,7 @@ export class ToolRegistry {
    */
   private zodToJsonSchema(tool: AnyToolSpec): {
     type: 'object';
-    properties: Record<string, unknown>;
+    properties: Record<string, JsonSchemaProperty>;
     required: string[];
     additionalProperties: boolean;
   } {
@@ -367,7 +368,8 @@ export class ToolRegistry {
         if (schema.type === 'object') {
           const result = {
             type: 'object' as const,
-            properties: schema.properties ?? {},
+            // zod-to-json-schema produces valid JSON Schema properties
+            properties: (schema.properties ?? {}) as Record<string, JsonSchemaProperty>,
             required: schema.required ?? [],
             additionalProperties: false,
           };
