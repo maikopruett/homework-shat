@@ -25,6 +25,7 @@ interface ChatSidebarProps {
   onStopGeneration: () => void;
   onCreateDocument: (title?: string) => void;
   onSwitchDocument: (docId: string) => void;
+  onDeleteDocument: (docId: string) => void;
   // Template props
   templates: EssayTemplate[];
   selectedTemplate: EssayTemplate | null;
@@ -56,6 +57,7 @@ export default function ChatSidebar({
   onStopGeneration,
   onCreateDocument,
   onSwitchDocument,
+  onDeleteDocument,
   templates,
   selectedTemplate,
   onSelectTemplate,
@@ -325,26 +327,43 @@ export default function ChatSidebar({
                 New document
               </button>
               {documents.map(doc => (
-                <button
+                <div
                   key={doc.id}
-                  className={`flex items-start gap-2.5 w-full px-3 py-2.5 border-none bg-transparent rounded-lg text-left cursor-pointer transition-colors hover:bg-gray-100 ${doc.id === activeDocument?.id ? 'bg-blue-50' : ''}`}
-                  onClick={() => onSwitchDocument(doc.id)}
+                  className={`group flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg transition-colors hover:bg-gray-100 ${doc.id === activeDocument?.id ? 'bg-blue-50' : ''}`}
                 >
-                  <div className={`w-5 h-5 flex items-center justify-center flex-shrink-0 ${doc.id === activeDocument?.id ? 'text-blue-600' : 'text-blue-600'}`}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                      <polyline points="14 2 14 8 20 8"/>
-                      <line x1="8" y1="13" x2="16" y2="13"/>
-                      <line x1="8" y1="17" x2="14" y2="17"/>
-                    </svg>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className={`text-[13px] font-medium whitespace-nowrap overflow-hidden text-ellipsis ${doc.id === activeDocument?.id ? 'text-blue-600' : 'text-gray-800'}`}>{doc.title}</div>
-                    <div className="text-[11px] text-gray-500 mt-0.5">
-                      {doc.chatMessages.length} messages · {formatDate(doc.updatedAt)}
+                  <button
+                    className="flex items-start gap-2.5 flex-1 min-w-0 border-none bg-transparent text-left cursor-pointer"
+                    onClick={() => onSwitchDocument(doc.id)}
+                  >
+                    <div className={`w-5 h-5 flex items-center justify-center flex-shrink-0 ${doc.id === activeDocument?.id ? 'text-blue-600' : 'text-blue-600'}`}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="8" y1="13" x2="16" y2="13"/>
+                        <line x1="8" y1="17" x2="14" y2="17"/>
+                      </svg>
                     </div>
-                  </div>
-                </button>
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-[13px] font-medium whitespace-nowrap overflow-hidden text-ellipsis ${doc.id === activeDocument?.id ? 'text-blue-600' : 'text-gray-800'}`}>{doc.title}</div>
+                      <div className="text-[11px] text-gray-500 mt-0.5">
+                        {doc.chatMessages.length} messages · {formatDate(doc.updatedAt)}
+                      </div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteDocument(doc.id);
+                    }}
+                    className="p-1 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all flex-shrink-0"
+                    title="Delete document"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="3 6 5 6 21 6"/>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                  </button>
+                </div>
               ))}
             </div>
           )}

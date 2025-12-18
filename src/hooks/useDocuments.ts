@@ -758,12 +758,16 @@ export function useDocuments() {
     const newDoc = createNewDocument(title);
     setDocuments(prev => [newDoc, ...prev]);
     setActiveDocId(newDoc.id);
+    // Clear todos when creating a new document
+    setCurrentTodos([]);
     return newDoc;
   }, []);
 
   const switchDocument = useCallback((docId: string) => {
     setActiveDocId(docId);
     setError(null);
+    // Clear todos when switching documents (each doc has its own agent session)
+    setCurrentTodos([]);
   }, []);
 
   const updateTitle = useCallback((docId: string, title: string) => {

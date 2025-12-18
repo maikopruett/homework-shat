@@ -10,9 +10,7 @@ export interface ModelInfo {
 }
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
-  { id: 'anthropic/claude-haiku-4.5', name: 'Haiku 4.5', provider: 'Anthropic', isBest: true },
-  { id: 'x-ai/grok-4-fast', name: 'Grok 4 Fast', provider: 'xAI', isFastest: true, isDefault: true },
-  { id: 'minimax/minimax-m1', name: 'MiniMax', provider: 'MiniMaxAI'},
+  { id: 'anthropic/claude-haiku-4.5', name: 'Haiku 4.5', provider: 'Anthropic', isBest: true, isDefault: true },
 ];
 
 export const DEFAULT_MODEL = AVAILABLE_MODELS.find(m => m.isDefault)?.id || AVAILABLE_MODELS[0].id;

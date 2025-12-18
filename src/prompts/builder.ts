@@ -14,28 +14,37 @@ import { WORKFLOW_RULES, CHAT_MODE_BASE_RULES } from './core/workflow';
 import { type PersonaSettings, generatePersonaEditPrompt, generatePersonaChatPrompt } from './core/persona';
 import { CLAUDE_PROMPT, type ModelPromptConfig } from './models/claude';
 import { GROK_PROMPT } from './models/grok';
+import { GEMINI_PROMPT } from './models/gemini';
+import { DEEPSEEK_PROMPT } from './models/deepseek';
+import { KIMI_PROMPT } from './models/kimi';
 import { MINIMAX_PROMPT } from './models/minimax';
 
 // Model family detection
-export type ModelFamily = 'claude' | 'grok' | 'minimax' | 'default';
+export type ModelFamily = 'claude' | 'grok' | 'gemini' | 'deepseek' | 'kimi' | 'minimax' | 'default';
 
 export function getModelFamily(modelId: string): ModelFamily {
   const id = modelId.toLowerCase();
   if (id.includes('claude')) return 'claude';
   if (id.includes('grok')) return 'grok';
+  if (id.includes('gemini')) return 'gemini';
+  if (id.includes('deepseek')) return 'deepseek';
+  if (id.includes('kimi')) return 'kimi';
   if (id.includes('minimax')) return 'minimax';
   return 'default';
 }
 
 /**
  * Check if a model supports proper OpenRouter tool calling.
- * Grok has issues with tool calling - it outputs XML-style parameters
- * in text content instead of proper JSON in tool_calls.
  */
 export function modelSupportsTools(modelId: string): boolean {
   const family = getModelFamily(modelId);
-  // Grok has broken tool calling via OpenRouter
-  if (family === 'grok') return false;
+  // All current models support tool calling
+  if (family === 'claude') return true;
+  if (family === 'grok') return true;
+  if (family === 'gemini') return true;
+  if (family === 'deepseek') return true;
+  if (family === 'kimi') return true;
+  if (family === 'minimax') return true;
   return true;
 }
 
@@ -43,8 +52,11 @@ export function modelSupportsTools(modelId: string): boolean {
 const MODEL_PROMPTS: Record<ModelFamily, ModelPromptConfig> = {
   claude: CLAUDE_PROMPT,
   grok: GROK_PROMPT,
+  gemini: GEMINI_PROMPT,
+  deepseek: DEEPSEEK_PROMPT,
+  kimi: KIMI_PROMPT,
   minimax: MINIMAX_PROMPT,
-  default: GROK_PROMPT, // Default to Grok (current default model)
+  default: GEMINI_PROMPT, // Default to Gemini (current default model)
 };
 
 // Search result interface (matches what's used in useDocuments)

@@ -2311,6 +2311,7 @@ ${html}
           onStopGeneration={onStopGeneration}
           onCreateDocument={onCreateDocument}
           onSwitchDocument={onSwitchDocument}
+          onDeleteDocument={onDeleteDocument}
           templates={templates}
           selectedTemplate={selectedTemplate}
           onSelectTemplate={onSelectTemplate}
