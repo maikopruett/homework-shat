@@ -10,7 +10,7 @@
  */
 
 import { WRITING_STYLE_RULES, BANNED_WORDS_STRING, PERSONAL_INFO_PLACEHOLDER } from './core/style';
-import { WORKFLOW_RULES, PLAN_MODE_INSTRUCTIONS } from './core/workflow';
+import { WORKFLOW_RULES, PLAN_MODE_INSTRUCTIONS, BUILD_MODE_INSTRUCTIONS } from './core/workflow';
 import { type PersonaSettings, generatePersonaEditPrompt } from './core/persona';
 import { CLAUDE_PROMPT, type ModelPromptConfig } from './models/claude';
 import { GROK_PROMPT } from './models/grok';
@@ -81,7 +81,7 @@ export interface EssayTemplate {
 // Context for building prompts
 export interface PromptContext {
   modelId: string;
-  mode: 'edit' | 'plan';
+  mode: 'edit' | 'plan' | 'build';
   persona?: PersonaSettings | null;
   documentTitle?: string;
   documentContent?: string;
@@ -90,6 +90,7 @@ export interface PromptContext {
   template?: EssayTemplate | null;
   currentDate: string;
   // Plan mode instructions are automatically included when mode === 'plan'
+  // Build mode instructions are automatically included when mode === 'build'
 }
 
 /**
@@ -159,6 +160,28 @@ ${PLAN_MODE_INSTRUCTIONS}`;
 }
 
 /**
+ * Build the default (non-persona) build mode prompt
+ * Build mode executes an approved plan to write the full essay
+ */
+function buildDefaultBuildPrompt(modelPrompt: ModelPromptConfig): string {
+  return `${modelPrompt.identity}
+
+${modelPrompt.toolGuidance}
+
+## Writing Style (Sound Human)
+${WRITING_STYLE_RULES}
+
+BANNED: ${BANNED_WORDS_STRING}
+
+${modelPrompt.strengths}
+
+## Workflow
+${WORKFLOW_RULES}
+
+${BUILD_MODE_INSTRUCTIONS}`;
+}
+
+/**
  * Main prompt builder function
  * Composes model-specific + uniform rules + context
  */
@@ -180,9 +203,13 @@ export function buildSystemPrompt(context: PromptContext): string {
     }
   } else {
     // Default mode - use model-specific base prompt
-    prompt = context.mode === 'edit'
-      ? buildDefaultEditPrompt(modelPrompt)
-      : buildDefaultPlanPrompt(modelPrompt);
+    if (context.mode === 'build') {
+      prompt = buildDefaultBuildPrompt(modelPrompt);
+    } else if (context.mode === 'plan') {
+      prompt = buildDefaultPlanPrompt(modelPrompt);
+    } else {
+      prompt = buildDefaultEditPrompt(modelPrompt);
+    }
   }
 
   // Step 2: Add date and document context

@@ -594,7 +594,7 @@ function generateTemplateInstructions(htmlContent: string): string {
 // See: src/prompts/models/claude.ts, grok.ts, minimax.ts for model-specific prompts
 // See: src/prompts/builder.ts for prompt composition logic
 
-export type ChatMode = 'edit' | 'plan';
+export type ChatMode = 'edit' | 'plan' | 'build';
 
 export function useDocuments() {
   const [documents, setDocuments] = useState<Document[]>(() => {
@@ -1131,6 +1131,32 @@ export function useDocuments() {
     }
   }, []);
 
+  // Build essay from plan - triggered when user clicks "Build" button in plan mode
+  const buildEssay = useCallback((editorRef: React.RefObject<TiptapEditorHandle | null>) => {
+    if (!activeDocument || !editorRef?.current) {
+      console.warn('[buildEssay] No active document or editor');
+      return;
+    }
+
+    // Get the plan content from the document
+    const planContent = editorRef.current.getText();
+
+    if (!planContent.trim()) {
+      console.warn('[buildEssay] No plan content found');
+      return;
+    }
+
+    // Construct the build message with the plan
+    const buildMessage = `BUILD ESSAY FROM THIS PLAN:
+
+${planContent}
+
+Execute this plan now. Create a todo list from the sections, clear the document, and write the full essay.`;
+
+    // Send as 'build' mode which uses the builder agent preset
+    sendMessage(buildMessage, editorRef, 'build');
+  }, [activeDocument, sendMessage]);
+
   return {
     documents,
     activeDocument,
@@ -1164,6 +1190,7 @@ export function useDocuments() {
     todoProgress,
     pendingQuestion,
     answerQuestion,
+    buildEssay,
     // Tool status for ghost mode
     currentToolStatus,
   };

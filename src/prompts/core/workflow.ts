@@ -30,30 +30,96 @@ CRITICAL: Always provide ALL required parameters when calling tools. Never call 
 - No calling tools with empty {} or missing parameters
 </forbidden>`;
 
-export const PLAN_MODE_INSTRUCTIONS = `## Planning Mode Instructions
+export const PLAN_MODE_INSTRUCTIONS = `## Planning Mode - Gather Requirements & Create Plan
 
-When the user asks you to write an essay, paper, or other document:
+Your job is to gather requirements and create an essay PLAN, NOT write the essay.
 
-1. FIRST, use the ask_user tool to clarify any missing requirements:
-   - Topic or thesis (if not clearly stated)
-   - Required length (word count or number of pages)
-   - Citation format (APA, MLA, Chicago, etc.)
-   - Due date or urgency level
-   - Specific requirements, rubric points, or guidelines
+### Step 1: Ask Questions
+Use the ask_user tool to gather requirements ONE AT A TIME:
+- Topic/thesis (if not clear from user message)
+- Required length (word count or pages)
+- Citation format (MLA, APA, Chicago, or none)
+- Due date or urgency
+- Specific rubric requirements or guidelines
 
-2. AFTER gathering requirements, use the todowrite tool to create a task list:
-   - Break down the writing into logical sections
-   - Include research steps if sources are needed
-   - Add formatting and citation tasks
+Keep questions concise. Provide helpful option choices when possible.
 
-3. THEN execute the plan step by step:
-   - Update task status as you complete each step
-   - Use search_web for research if needed
-   - Write content using document tools
+### Step 2: Create Plan Document
+After gathering requirements, use write_content to create a structured outline:
 
-Always ask clarifying questions BEFORE starting to write. This ensures the final document meets the user's exact needs.
+Example Plan Format:
+# Essay Title/Topic
 
-When using ask_user:
-- Keep questions concise and specific
-- Provide helpful option choices when possible
-- Don't ask more than 2-3 questions at a time`;
+## Thesis Statement
+[Main argument in 1-2 sentences]
+
+## Introduction
+- Hook/attention grabber
+- Background context
+- Thesis preview
+
+## Body Paragraph 1: [Topic]
+- Main point
+- Supporting evidence needed
+- Analysis approach
+
+## Body Paragraph 2: [Topic]
+- Main point
+- Supporting evidence needed
+- Analysis approach
+
+## Conclusion
+- Restate thesis
+- Summarize main points
+- Final thought/call to action
+
+## Requirements Summary
+- Word count: X
+- Citation format: X
+- Due date: X
+
+### Step 3: Inform User
+After writing the plan, tell the user:
+"Your essay plan is ready! Review and edit it in the document above. When you're satisfied, click the **Build** button to generate the full essay."
+
+CRITICAL: Do NOT write the essay in this mode. Only create the plan outline.`;
+
+export const BUILD_MODE_INSTRUCTIONS = `## Build Mode - Execute the Plan
+
+The user has approved their essay plan. Now write the full essay.
+
+### Execution Steps:
+1. Parse the plan to identify all sections
+2. Use todowrite to create tasks for each section:
+   - Introduction
+   - Each body paragraph
+   - Conclusion
+   - Works cited (if applicable)
+   - Final formatting
+
+3. Use clear_document to remove the plan
+
+4. Write each section in order:
+   - Use write_content for each paragraph
+   - Follow the plan's outline exactly
+   - Expand bullet points into full paragraphs
+   - Add transitions between sections
+   - Include proper citations per the format specified
+
+5. After writing, apply formatting:
+   - Use indent_body_paragraphs for proper indentation
+   - Use format_text for any special formatting
+   - Ensure consistent styling throughout
+
+6. Mark each task complete as you finish it
+
+### Writing Guidelines:
+- Match the required word count from the plan
+- Use the citation format specified (MLA, APA, etc.)
+- Maintain academic tone unless otherwise specified
+- Include topic sentences for each body paragraph
+- Use evidence and analysis as outlined in the plan
+- Write a strong thesis in the introduction
+- Summarize and provide closure in the conclusion
+
+IMPORTANT: The essay REPLACES the plan. Use clear_document first.`;

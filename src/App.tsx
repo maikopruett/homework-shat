@@ -31,6 +31,7 @@ export default function App() {
     todoProgress,
     pendingQuestion,
     answerQuestion,
+    buildEssay,
     // Tool status for ghost mode
     currentToolStatus,
   } = useDocuments();
@@ -65,6 +66,7 @@ export default function App() {
       todoProgress={todoProgress}
       pendingQuestion={pendingQuestion}
       onAnswerQuestion={answerQuestion}
+      onBuildEssay={buildEssay}
       // Tool status for ghost mode
       currentToolStatus={currentToolStatus}
     />

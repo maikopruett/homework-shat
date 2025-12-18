@@ -64,7 +64,7 @@ export type TodoInput = z.infer<typeof TodoSchema>;
 
 // ==================== Agent Types ====================
 
-export type AgentMode = 'edit' | 'chat' | 'plan';
+export type AgentMode = 'edit' | 'chat' | 'plan' | 'build';
 
 export interface ToolPermissions {
   enabled: string[];   // Tool IDs that are enabled (empty = all allowed)

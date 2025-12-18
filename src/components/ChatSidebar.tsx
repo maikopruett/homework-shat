@@ -38,6 +38,7 @@ interface ChatSidebarProps {
   todoProgress: { total: number; completed: number; percentage: number };
   pendingQuestion: UserQuestionRequest | null;
   onAnswerQuestion: (questionId: string, selectedOptions: string[]) => void;
+  onBuildEssay: () => void;
   // Ghost mode
   ghostModeEnabled?: boolean;
 }
@@ -70,6 +71,7 @@ export default function ChatSidebar({
   todoProgress,
   pendingQuestion,
   onAnswerQuestion,
+  onBuildEssay,
   ghostModeEnabled = false,
 }: ChatSidebarProps) {
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
@@ -625,8 +627,8 @@ export default function ChatSidebar({
                   <path d="M9 21V9"/>
                 </svg>
                 {selectedTemplate.name}
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => onSelectTemplate(null)}
                   className="ml-1 hover:text-amber-900"
                 >
@@ -636,6 +638,27 @@ export default function ChatSidebar({
                   </svg>
                 </button>
               </span>
+            </div>
+          )}
+
+          {/* Build Essay Button - shown in plan mode when document has content */}
+          {chatMode === 'plan' && activeDocument?.content && !isLoading && (
+            <div className="px-4 py-3 border-t border-gray-200 bg-blue-50">
+              <button
+                type="button"
+                onClick={onBuildEssay}
+                className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                  <path d="M2 17l10 5 10-5"/>
+                  <path d="M2 12l10 5 10-5"/>
+                </svg>
+                Build Essay from Plan
+              </button>
+              <p className="text-xs text-purple-600 text-center mt-2">
+                Edit your plan above, then click to generate the full essay
+              </p>
             </div>
           )}
 

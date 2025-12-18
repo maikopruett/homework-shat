@@ -38,6 +38,7 @@ interface GoogleDocsUIProps {
   todoProgress: { total: number; completed: number; percentage: number };
   pendingQuestion: UserQuestionRequest | null;
   onAnswerQuestion: (questionId: string, selectedOptions: string[]) => void;
+  onBuildEssay: (editorRef: React.RefObject<TiptapEditorHandle | null>) => void;
   // Tool status for ghost mode
   currentToolStatus: ToolStatus | null;
 }
@@ -106,6 +107,7 @@ export default function GoogleDocsUI({
   todoProgress,
   pendingQuestion,
   onAnswerQuestion,
+  onBuildEssay,
   currentToolStatus,
 }: GoogleDocsUIProps) {
   const editorRef = useRef<TiptapEditorHandle>(null);
@@ -2340,6 +2342,7 @@ ${html}
           todoProgress={todoProgress}
           pendingQuestion={pendingQuestion}
           onAnswerQuestion={onAnswerQuestion}
+          onBuildEssay={() => onBuildEssay(editorRef)}
           ghostModeEnabled={ghostModeEnabled}
         />
       </div>

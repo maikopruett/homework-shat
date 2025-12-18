@@ -42,6 +42,23 @@ const ESSAY_PLANNER_TOOLS: ToolPermissions = {
   askFirst: ['clear_document'],
 };
 
+const BUILDER_TOOLS: ToolPermissions = {
+  enabled: [
+    'read_document',
+    'search_web',
+    'todowrite',
+    'todoread',
+    'clear_document',  // To replace plan with essay
+    'write_content',
+    'edit_text',
+    'insert_content',
+    'format_text',
+    'indent_body_paragraphs',
+  ],
+  disabled: ['ask_user'],  // No questions during build - plan is approved
+  askFirst: [],
+};
+
 const FULL_TOOLS: ToolPermissions = {
   enabled: [], // All tools
   disabled: [],
@@ -69,6 +86,13 @@ const ESSAY_PLANNER_PERMISSIONS: AgentPermissions = {
   canSearch: true,
   canSpawnSubagent: false,
   maxFollowUps: 20, // More for planning + execution workflow
+};
+
+const BUILDER_PERMISSIONS: AgentPermissions = {
+  canEditDocument: true,
+  canSearch: true,
+  canSpawnSubagent: false,
+  maxFollowUps: 30, // More cycles for full essay writing
 };
 
 const FULL_PERMISSIONS: AgentPermissions = {
@@ -130,6 +154,18 @@ export const AGENT_PRESETS = {
     mode: 'plan' as AgentMode,
     tools: ESSAY_PLANNER_TOOLS,
     permissions: ESSAY_PLANNER_PERMISSIONS,
+  },
+
+  /**
+   * Essay Builder - Executes an approved plan to write the full essay.
+   * Called when user clicks "Build" after editing their plan.
+   */
+  builder: {
+    id: 'builder',
+    name: 'Essay Builder',
+    mode: 'build' as AgentMode,
+    tools: BUILDER_TOOLS,
+    permissions: BUILDER_PERMISSIONS,
   },
 } as const;
 
@@ -207,6 +243,7 @@ export function createCustomAgent(config: {
 /**
  * Get the appropriate preset for a chat mode.
  */
-export function getPresetForMode(mode: 'edit' | 'plan'): AgentPresetKey {
+export function getPresetForMode(mode: 'edit' | 'plan' | 'build'): AgentPresetKey {
+  if (mode === 'build') return 'builder';
   return mode === 'edit' ? 'editor' : 'essay_planner';
 }
