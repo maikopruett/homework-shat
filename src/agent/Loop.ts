@@ -13,12 +13,14 @@ import type {
   TextPart,
   ToolCallPart,
   ToolResultPart,
+  ReasoningPart,
   ToolContext,
   ToolStatus,
   DocumentInfo,
   UserQuestionRequest,
   UserQuestionResponse,
   UserQuestionParams,
+  ReasoningDetail,
 } from './types';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
 import type { ChatMessage, ToolCall } from '../api/openrouter';
@@ -37,6 +39,8 @@ export interface LoopOptions {
   onStatusUpdate: (status: ToolStatus) => void;
   onMessageUpdate: (message: Message) => void;
   onTokenReceived?: (token: string) => void;
+  /** Callback when reasoning tokens are received (for real-time streaming display) */
+  onReasoningReceived?: (detail: ReasoningDetail) => void;
   /** Callback for ask_user tool - pauses loop until user responds */
   onUserQuestionRequest?: (request: UserQuestionRequest) => Promise<UserQuestionResponse>;
   abortSignal?: AbortSignal;
@@ -255,6 +259,31 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
             onMessageUpdate(assistantMessage);
           },
 
+          onReasoningToken: (detail) => {
+            // Stream reasoning to UI in real-time
+            options.onReasoningReceived?.(detail);
+
+            // Find or create a ReasoningPart in the message
+            let reasoningPart = assistantMessage.parts.find(
+              (p): p is ReasoningPart => p.type === 'reasoning'
+            );
+
+            if (!reasoningPart) {
+              // Create new reasoning part at the beginning of parts (reasoning comes first)
+              reasoningPart = {
+                type: 'reasoning',
+                details: [],
+                isStreaming: true,
+              };
+              // Insert at beginning so reasoning appears before text
+              assistantMessage.parts.unshift(reasoningPart);
+            }
+
+            // Add the new reasoning detail
+            reasoningPart.details.push(detail);
+            onMessageUpdate(assistantMessage);
+          },
+
           onToolCallStart: () => {
             // Reset text content when tool calls start
             // The model may stream more text after tools complete
@@ -427,14 +456,25 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
           },
 
           onComplete: (metrics) => {
+            // Mark reasoning part as no longer streaming
+            const reasoningPart = assistantMessage.parts.find(
+              (p): p is ReasoningPart => p.type === 'reasoning'
+            );
+            if (reasoningPart) {
+              reasoningPart.isStreaming = false;
+            }
+
             // Update message metadata
+            // Use reasoning from parts if available, otherwise from metrics
+            const reasoningDetails = reasoningPart?.details ?? metrics?.reasoningDetails;
             assistantMessage.metadata = {
               model: agentConfig.model,
               ttft: metrics?.ttft,
               tps: metrics?.tps,
               tokenCount: metrics?.totalTokens,
-              reasoningDetails: metrics?.reasoningDetails, // For reasoning models
+              reasoningDetails, // For reasoning models - preserved for follow-up calls
             };
+            onMessageUpdate(assistantMessage);
           },
 
           onError: (error) => {

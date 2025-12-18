@@ -116,6 +116,7 @@ export interface StreamMetrics {
 
 export interface StreamCallbacks {
   onToken: (token: string) => void;
+  onReasoningToken?: (detail: ReasoningDetail) => void; // Called when reasoning tokens are received (for real-time streaming)
   onToolCalls?: (toolCalls: ToolCall[]) => Promise<ChatMessage[]>; // Returns tool results
   onFollowUp?: () => void; // Called before making a follow-up call after tool execution - allows creating new message
   onToolCallStart?: () => void; // Called when first tool call is detected - signals end of text before tools
@@ -384,11 +385,19 @@ export async function sendMessageStream(
               if (deltaReasoningDetails && Array.isArray(deltaReasoningDetails)) {
                 console.log('[API] Captured delta reasoning_details:', deltaReasoningDetails.length, 'items');
                 accumulatedReasoningDetails.push(...deltaReasoningDetails);
+                // Stream reasoning to UI in real-time
+                for (const detail of deltaReasoningDetails) {
+                  callbacks.onReasoningToken?.(detail);
+                }
               }
               if (messageReasoningDetails && Array.isArray(messageReasoningDetails)) {
                 console.log('[API] Captured message reasoning_details:', messageReasoningDetails.length, 'items');
-                // For non-streaming format, replace accumulated
+                // For non-streaming format, replace accumulated and stream all
                 accumulatedReasoningDetails = messageReasoningDetails;
+                // Stream all reasoning details (for non-streaming responses)
+                for (const detail of messageReasoningDetails) {
+                  callbacks.onReasoningToken?.(detail);
+                }
               }
             }
           } catch {

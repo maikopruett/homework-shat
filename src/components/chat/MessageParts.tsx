@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import type { MessagePart, TextPart, ToolCallPart, ToolResultPart, MessageMetadata, ReasoningDetail } from '../../agent/types';
+import type { MessagePart, TextPart, ToolCallPart, ToolResultPart, ReasoningPart, MessageMetadata, ReasoningDetail } from '../../agent/types';
 import { getToolDisplayInfo, formatArgsPreview } from '../../agent/toolDisplayInfo';
 import { Check, X, Circle, Brain } from 'lucide-react';
 
@@ -39,10 +39,10 @@ export function MessagePartsRenderer({ parts, isStreaming, metadata }: MessagePa
     }
   }
 
-  // Filter to only render text and tool_call parts (results are embedded in tool calls)
+  // Filter to only render text, tool_call, and reasoning parts (results are embedded in tool calls)
   const renderableParts = parts.filter(
-    (part): part is TextPart | ToolCallPart =>
-      part.type === 'text' || part.type === 'tool_call'
+    (part): part is TextPart | ToolCallPart | ReasoningPart =>
+      part.type === 'text' || part.type === 'tool_call' || part.type === 'reasoning'
   );
 
   if (renderableParts.length === 0 && isStreaming) {
@@ -55,14 +55,15 @@ export function MessagePartsRenderer({ parts, isStreaming, metadata }: MessagePa
     );
   }
 
-  // Check if we have reasoning details to display
+  // Check if we have reasoning in parts (streaming) or metadata (legacy/fallback)
+  const hasReasoningPart = renderableParts.some(p => p.type === 'reasoning');
   const reasoningDetails = metadata?.reasoningDetails;
-  const hasReasoning = reasoningDetails && reasoningDetails.length > 0;
+  const hasLegacyReasoning = !hasReasoningPart && reasoningDetails && reasoningDetails.length > 0;
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Show reasoning details first (collapsed by default) */}
-      {hasReasoning && (
+      {/* Show legacy reasoning from metadata if no reasoning part exists */}
+      {hasLegacyReasoning && (
         <ReasoningDetailsDisplay details={reasoningDetails} />
       )}
       {renderableParts.map((part, index) => (
@@ -85,6 +86,8 @@ function PartRenderer({ part, resultsByCallId }: PartRendererProps) {
           result={resultsByCallId.get(part.callId)}
         />
       );
+    case 'reasoning':
+      return <ReasoningPartDisplay part={part} />;
     default:
       return null;
   }
@@ -201,15 +204,111 @@ function ToolCallDisplay({ part, result }: ToolCallDisplayProps) {
   );
 }
 
-// ==================== Reasoning Details ====================
+// ==================== Reasoning Part (Streaming) ====================
+
+/**
+ * Displays a ReasoningPart from the message parts array.
+ * Shows streaming indicator when reasoning is in progress.
+ */
+function ReasoningPartDisplay({ part }: { part: ReasoningPart }) {
+  const [expanded, setExpanded] = useState(false);
+  const { details, isStreaming } = part;
+
+  // Extract readable text from reasoning details
+  const reasoningText = details.map((detail) => {
+    if (detail.type === 'reasoning.text') {
+      return detail.text;
+    } else if (detail.type === 'reasoning.summary') {
+      return detail.summary;
+    } else if (detail.type === 'reasoning.encrypted') {
+      return '[Encrypted reasoning]';
+    }
+    return '';
+  }).filter(Boolean).join('\n\n');
+
+  // Count the different types
+  const textCount = details.filter(d => d.type === 'reasoning.text').length;
+  const summaryCount = details.filter(d => d.type === 'reasoning.summary').length;
+  const encryptedCount = details.filter(d => d.type === 'reasoning.encrypted').length;
+
+  // Build preview text
+  let previewText = isStreaming ? 'Thinking...' : `${details.length} reasoning block${details.length !== 1 ? 's' : ''}`;
+  if (!isStreaming && (textCount > 0 || summaryCount > 0)) {
+    const wordCount = reasoningText.split(/\s+/).length;
+    previewText = `${wordCount} words`;
+  }
+
+  return (
+    <div className={`rounded-lg border overflow-hidden ${isStreaming ? 'border-purple-300 bg-purple-100' : 'border-purple-200 bg-purple-50'}`}>
+      {/* Clickable header */}
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 w-full px-3 py-2 text-left text-sm hover:bg-black/5 transition-colors"
+      >
+        {/* Status indicator - spinner when streaming, brain when done */}
+        {isStreaming ? (
+          <Spinner />
+        ) : (
+          <Brain className="w-4 h-4 text-purple-600 shrink-0" />
+        )}
+
+        {/* Label */}
+        <span className="font-medium text-purple-700">
+          {isStreaming ? 'Thinking' : 'Reasoning'}
+        </span>
+
+        {/* Preview */}
+        <span className="text-purple-500 truncate flex-1 text-xs">
+          {previewText}
+          {!isStreaming && encryptedCount > 0 && ` (${encryptedCount} encrypted)`}
+        </span>
+
+        {/* Expand chevron */}
+        <ChevronIcon expanded={expanded} />
+      </button>
+
+      {/* Expandable details */}
+      {expanded && (
+        <div className="px-3 pb-3 pt-1 border-t border-purple-200/50">
+          {reasoningText ? (
+            <div className="text-xs text-purple-800 bg-white/50 rounded p-2 whitespace-pre-wrap max-h-64 overflow-y-auto">
+              {reasoningText}
+              {isStreaming && <span className="animate-pulse">▋</span>}
+            </div>
+          ) : isStreaming ? (
+            <div className="text-xs text-purple-600 italic">
+              Waiting for reasoning content...
+            </div>
+          ) : (
+            <div className="text-xs text-purple-600 italic">
+              Reasoning content is encrypted and cannot be displayed.
+            </div>
+          )}
+
+          {/* Show detail type breakdown if multiple types and not streaming */}
+          {!isStreaming && (textCount > 0 || summaryCount > 0 || encryptedCount > 0) && (
+            <div className="mt-2 flex gap-2 text-xs text-purple-500">
+              {textCount > 0 && <span>{textCount} text</span>}
+              {summaryCount > 0 && <span>{summaryCount} summary</span>}
+              {encryptedCount > 0 && <span>{encryptedCount} encrypted</span>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== Reasoning Details (Legacy/Metadata) ====================
 
 interface ReasoningDetailsDisplayProps {
   details: ReasoningDetail[];
 }
 
 /**
- * Displays reasoning details from reasoning models (Gemini, Claude 3.7+, etc.)
- * Shows as a collapsible box similar to tool calls.
+ * Displays reasoning details from message metadata (legacy format).
+ * Used as fallback when no ReasoningPart exists in message parts.
  */
 function ReasoningDetailsDisplay({ details }: ReasoningDetailsDisplayProps) {
   const [expanded, setExpanded] = useState(false);
@@ -349,10 +448,18 @@ interface StreamingStatusProps {
 export function StreamingStatus({ parts }: StreamingStatusProps) {
   const lastPart = parts[parts.length - 1];
 
-  // Determine status text based on last part
+  // Check if reasoning is active (reasoning part with isStreaming=true)
+  const reasoningPart = parts.find(
+    (p): p is ReasoningPart => p.type === 'reasoning' && p.isStreaming === true
+  );
+
+  // Determine status text based on active part
   let statusText = 'Thinking...';
 
-  if (lastPart?.type === 'tool_call') {
+  if (reasoningPart) {
+    // Reasoning is streaming - show "Thinking" status
+    statusText = 'Thinking...';
+  } else if (lastPart?.type === 'tool_call') {
     const info = getToolDisplayInfo(lastPart.toolId);
     statusText = info.activeLabel;
   } else if (lastPart?.type === 'text') {

@@ -118,11 +118,18 @@ export interface Message {
 export type MessagePart =
   | TextPart
   | ToolCallPart
-  | ToolResultPart;
+  | ToolResultPart
+  | ReasoningPart;
 
 export interface TextPart {
   type: 'text';
   content: string;
+}
+
+export interface ReasoningPart {
+  type: 'reasoning';
+  details: ReasoningDetail[];
+  isStreaming?: boolean;
 }
 
 export interface ToolCallPart {
