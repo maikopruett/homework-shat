@@ -18,6 +18,7 @@ export {
   buildSystemPrompt,
   getModelFamily,
   getModelPromptConfig,
+  modelSupportsTools,
   type ModelFamily,
   type PromptContext,
   type SearchResult,
@@ -49,3 +50,14 @@ export {
 export { CLAUDE_PROMPT, type ModelPromptConfig } from './models/claude';
 export { GROK_PROMPT } from './models/grok';
 export { MINIMAX_PROMPT } from './models/minimax';
+
+// Essay format templates and validation
+export { PRESET_TEMPLATES, APA_TEMPLATE, MLA_TEMPLATE } from './formats';
+export {
+  validateFormatting,
+  parseTemplateRequirements,
+  type FormatValidationResult,
+  type FormatIssue,
+  type FormatCorrection,
+  type TemplateRequirements,
+} from './formats';

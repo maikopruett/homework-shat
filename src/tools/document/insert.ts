@@ -8,7 +8,22 @@ import { findTextInDocument, textToHtml } from './utils';
 export const insertContentTool = Tool.define({
   id: 'insert_content',
   name: 'Insert Content',
-  description: 'Insert content at a specific position in the document.',
+  description: `Insert content at a specific position in the document.
+
+WHEN TO USE: When you need precise placement of content - at the start, end, or relative to existing text. Use instead of write_content when position matters.
+
+PARAMETERS:
+- content: Plain text to insert (no markdown)
+- position: One of "start" | "end" | "before" | "after"
+- target_text: Required if position is "before" or "after". The exact text to insert relative to.
+
+OUTPUT: Returns { inserted: true, position } on success.
+
+EXAMPLES:
+- Insert title at start: { content: "My Essay", position: "start" }
+- Add after intro: { content: "New paragraph", position: "after", target_text: "Introduction paragraph text" }
+
+FALLBACK: If target_text not found, "before" falls back to start, "after" falls back to end.`,
   parameters: z.object({
     content: z.string().describe('The text content to insert.'),
     position: z

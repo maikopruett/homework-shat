@@ -8,8 +8,33 @@ import type { Todo } from '../../agent/types';
 export const todoWriteTool = Tool.define({
   id: 'todowrite',
   name: 'Update Todos',
-  description:
-    'Create or update the task list for tracking multi-step work. Use this to break down complex tasks, track progress, and show the user what you are working on.',
+  description: `Create or update the task list to track multi-step work and show progress to the user.
+
+WHEN TO USE: When working on complex tasks with multiple steps. Helps users see your progress and plan.
+
+PARAMETERS (IMPORTANT - use "todos" NOT "tasks"):
+- todos: Array of todo items. Each item has:
+  * id: (optional) Include to update existing todo, omit for new todos
+  * content: Brief task description (1-2 sentences max)
+  * status: One of "pending" | "in_progress" | "completed" | "cancelled"
+  * priority: (optional) "low" | "medium" | "high"
+
+OUTPUT: Returns { total, pending, in_progress, completed, incomplete }
+
+TIPS:
+- Break complex work into 3-7 clear steps
+- Update status as you complete each step
+- Keep task descriptions brief and actionable
+- Only one task should be "in_progress" at a time
+
+EXAMPLE:
+{
+  "todos": [
+    { "content": "Research topic", "status": "completed" },
+    { "content": "Write introduction", "status": "in_progress" },
+    { "content": "Write body paragraphs", "status": "pending" }
+  ]
+}`,
   parameters: z.object({
     todos: z.array(
       z.object({
@@ -20,9 +45,18 @@ export const todoWriteTool = Tool.define({
           .describe('Current status of the task.'),
         priority: z.enum(['low', 'medium', 'high']).optional().describe('Task priority level.'),
       })
-    ),
+    ).describe('Array of todo items to create or update. Use "todos" NOT "tasks".'),
   }),
   requiredContext: ['session'],
+  examples: [
+    {
+      todos: [
+        { content: 'Research topic', status: 'in_progress' },
+        { content: 'Write introduction', status: 'pending' },
+        { content: 'Write conclusion', status: 'pending' },
+      ],
+    },
+  ],
 
   async execute({ todos }, ctx) {
     const session = ctx.session;

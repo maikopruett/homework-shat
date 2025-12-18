@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import ReactMarkdown from 'react-markdown';
-import type { Document, ChatMode, EssayTemplate, MessageStatus } from '../hooks/useDocuments';
+import type { Document, ChatMode, EssayTemplate } from '../hooks/useDocuments';
+import { getMessageText } from '../hooks/useDocuments';
 import { AVAILABLE_MODELS } from '../api/openrouter';
 import { parseFile, isValidFileType, getAcceptedFileTypes, type ParsedFile } from '../utils/fileParser';
 import type { SearchResult } from '../api/exa';
@@ -8,6 +8,7 @@ import type { TiptapEditorHandle } from './TiptapEditor';
 import type { Todo, UserQuestionRequest } from '../agent/types';
 import TodoListPanel from './TodoListPanel';
 import UserQuestionUI from './UserQuestionUI';
+import { MessagePartsRenderer, StreamingStatus } from './chat/MessageParts';
 
 interface ChatSidebarProps {
   documents: Document[];
@@ -38,59 +39,7 @@ interface ChatSidebarProps {
   onAnswerQuestion: (questionId: string, selectedOptions: string[]) => void;
 }
 
-// Helper to get status icon
-function getStatusIcon(status: MessageStatus, statusDetail?: string) {
-  // Show checkmark for completed steps like "Research done"
-  if (statusDetail === 'Research done') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5">
-        <polyline points="20 6 9 17 4 12"/>
-      </svg>
-    );
-  }
-  
-  switch (status) {
-    case 'thinking':
-      return (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-pulse">
-          <circle cx="12" cy="12" r="10"/>
-          <path d="M12 6v6l4 2"/>
-        </svg>
-      );
-    case 'reading':
-      return (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-pulse">
-          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-          <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-        </svg>
-      );
-    case 'searching':
-      return (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
-          <circle cx="11" cy="11" r="8"/>
-          <path d="m21 21-4.35-4.35"/>
-        </svg>
-      );
-    case 'writing':
-      return (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-bounce">
-          <path d="M12 19l7-7 3 3-7 7-3-3z"/>
-          <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
-          <path d="M2 2l7.586 7.586"/>
-        </svg>
-      );
-    case 'formatting':
-      return (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-pulse">
-          <path d="M4 7V4h16v3"/>
-          <path d="M9 20h6"/>
-          <path d="M12 4v16"/>
-        </svg>
-      );
-    default:
-      return null;
-  }
-}
+// Status icon helper is now handled by MessageParts component
 
 export default function ChatSidebar({
   documents,
@@ -124,7 +73,7 @@ export default function ChatSidebar({
   const toolsMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [chatInput, setChatInput] = useState('');
-  const [showDocList, setShowDocList] = useState(true);
+  const [showDocList, setShowDocList] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -331,23 +280,36 @@ export default function ChatSidebar({
 
         {/* Document List Panel */}
         <div className="border-b border-gray-200 bg-white">
-          <div 
-            className="flex items-center justify-between px-4 py-3 cursor-pointer transition-colors hover:bg-gray-50"
-            onClick={() => setShowDocList(!showDocList)}
-          >
-            <div className="flex items-center gap-2 text-[13px] font-medium text-gray-800">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div
+              className="flex items-center gap-2 text-[13px] font-medium text-gray-800 cursor-pointer transition-colors hover:text-gray-600 flex-1"
+              onClick={() => setShowDocList(!showDocList)}
+            >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-500">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                 <polyline points="14 2 14 8 20 8"/>
               </svg>
               <span>Documents ({documents.length})</span>
+              <svg
+                width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                className={`text-gray-500 transition-transform duration-200 ${showDocList ? 'rotate-180' : ''}`}
+              >
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
             </div>
-            <svg 
-              width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-              className={`text-gray-500 transition-transform duration-200 ${showDocList ? 'rotate-180' : ''}`}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleNewDocument();
+              }}
+              className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-blue-600 transition-colors"
+              title="New document"
             >
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            </button>
           </div>
           
           {showDocList && (
@@ -529,27 +491,22 @@ export default function ChatSidebar({
           {chatMessages.map((msg) => (
             <div key={msg.id} className="flex flex-col gap-1">
               {msg.role === 'user' ? (
-                // User messages always shown
+                // User messages - render text from parts
                 <div className="max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-snug self-end bg-blue-600 text-white rounded-br-sm">
-                  {msg.content}
+                  {getMessageText(msg)}
                 </div>
               ) : (
-                // Assistant messages - only show bubble when there's content
-                <>
-                  {msg.content && (
-                    // Show content bubble only when there's actual text
-                    <div className="max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-snug self-start bg-gray-100 text-gray-800 rounded-bl-sm prose prose-sm prose-gray max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5 [&_code]:bg-gray-200 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[13px] [&_pre]:bg-gray-800 [&_pre]:text-gray-100 [&_pre]:p-2 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_a]:text-blue-600 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-gray-300 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-gray-600">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
-                    </div>
-                  )}
-                </>
-              )}
-              {/* Per-message status indicator */}
-              {msg.role === 'assistant' && msg.status && msg.status !== 'done' && (
-                <div className="flex items-center gap-1.5 text-xs text-gray-500 py-0.5 ml-1">
-                  {getStatusIcon(msg.status, msg.statusDetail)}
-                  <span>{msg.statusDetail || msg.status}</span>
+                // Assistant messages - render all parts
+                <div className="flex flex-col gap-2 max-w-[85%] self-start">
+                  <MessagePartsRenderer
+                    parts={msg.parts}
+                    isStreaming={msg.isStreaming}
+                  />
                 </div>
+              )}
+              {/* Streaming status indicator */}
+              {msg.role === 'assistant' && msg.isStreaming && (
+                <StreamingStatus parts={msg.parts} />
               )}
             </div>
           ))}

@@ -22,6 +22,7 @@ import type {
 } from './types';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
 import type { ChatMessage, ToolCall } from '../api/openrouter';
+import { validateFormatting, modelSupportsTools, type EssayTemplate } from '../prompts';
 
 // ==================== Types ====================
 
@@ -30,6 +31,8 @@ export interface LoopOptions {
   userMessage: string;
   editor: TiptapEditorHandle | null;
   document: DocumentInfo | null;
+  /** Selected essay template for formatting validation */
+  template?: EssayTemplate | null;
   systemPrompt: string;
   onStatusUpdate: (status: ToolStatus) => void;
   onMessageUpdate: (message: Message) => void;
@@ -121,7 +124,7 @@ function buildFullSystemPrompt(basePrompt: string, session: Session): string {
       const priority = todo.priority ? ` (${todo.priority})` : '';
       prompt += `${statusIcon} ${todo.content}${priority}\n`;
     }
-    prompt += '\nUse the todowrite tool to update task status as you work.\n';
+    prompt += '\nUpdate these tasks using todowrite as you complete them.\n';
   }
 
   return prompt;
@@ -161,9 +164,10 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
     options;
   const { agentConfig } = session;
 
-  // Get available tools for this agent
-  const availableTools = toolRegistry.getForAgent(agentConfig);
-  const openRouterTools = toolRegistry.toOpenRouterFormat(availableTools);
+  // Get available tools for this agent (skip for models with broken tool calling)
+  const supportsTools = modelSupportsTools(agentConfig.model);
+  const availableTools = supportsTools ? toolRegistry.getForAgent(agentConfig) : [];
+  const openRouterTools = supportsTools ? toolRegistry.toOpenRouterFormat(availableTools) : [];
 
   // Build initial message history
   let messages = buildMessageHistory(session, userMessage, systemPrompt);
@@ -228,9 +232,8 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
             toolCallsThisRound.push(...toolCalls);
             totalToolCalls += toolCalls.length;
 
-            const toolResults: ChatMessage[] = [];
-
-            for (const toolCall of toolCalls) {
+            // Helper function to execute a single tool call
+            const executeToolCall = async (toolCall: ToolCall): Promise<ChatMessage> => {
               const { name, arguments: argsJson } = toolCall.function;
               let args: unknown;
 
@@ -355,15 +358,31 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
               assistantMessage.parts.push(toolResultPart);
               onMessageUpdate(assistantMessage);
 
-              // Add to messages for follow-up
+              // Return the message for follow-up
               const resultContent = result.success
                 ? { success: true, ...(result.data as object) }
                 : { success: false, error: result.error };
-              toolResults.push({
-                role: 'tool',
+              return {
+                role: 'tool' as const,
                 tool_call_id: toolCall.id,
                 content: JSON.stringify(resultContent),
-              });
+              };
+            };
+
+            // Execute tools - parallel by default unless disabled via config
+            const shouldRunParallel = agentConfig.toolCallingOptions?.parallel_tool_calls !== false;
+
+            let toolResults: ChatMessage[];
+            if (shouldRunParallel && toolCalls.length > 1) {
+              // Execute all tool calls in parallel
+              toolResults = await Promise.all(toolCalls.map(executeToolCall));
+            } else {
+              // Execute sequentially (for single tool or when parallel is disabled)
+              toolResults = [];
+              for (const toolCall of toolCalls) {
+                const result = await executeToolCall(toolCall);
+                toolResults.push(result);
+              }
             }
 
             return toolResults;
@@ -391,14 +410,33 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
         },
         agentConfig.model,
         abortSignal,
-        // Cast to any to avoid strict type checking on tool definitions
-        // The runtime will validate the structure
+        // Pass tool definitions if available
         openRouterTools.length > 0 ? (openRouterTools as unknown as import('../api/openrouter').ToolDefinition[]) : undefined,
-        openRouterTools.length > 0 ? 'auto' : undefined
+        // Pass tool choice from agent config, default to 'auto'
+        openRouterTools.length > 0 ? (agentConfig.toolCallingOptions?.tool_choice ?? 'auto') : undefined,
+        // Pass parallel tool calls option from agent config
+        agentConfig.toolCallingOptions?.parallel_tool_calls
       );
 
       // If no tool calls were made, we're done
       if (!hasToolCalls) {
+        // Validate formatting if template is selected (silent auto-correction)
+        if (options.template && options.editor) {
+          const validation = validateFormatting(options.editor, options.template);
+
+          if (!validation.isValid && validation.corrections.length > 0) {
+            // Create tool context for corrections
+            const ctx = createToolContext(options, (status) => {
+              onStatusUpdate(status);
+              onMessageUpdate(assistantMessage);
+            });
+
+            // Execute corrections silently
+            for (const correction of validation.corrections) {
+              await toolRegistry.execute(correction.toolId, correction.params, ctx);
+            }
+          }
+        }
         break;
       }
 

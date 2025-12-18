@@ -47,11 +47,11 @@ export default function UserQuestionUI({ question, onAnswer, disabled = false }:
   };
 
   return (
-    <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-2xl p-4 border border-purple-100 shadow-sm">
+    <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
       {/* Question icon and text */}
       <div className="flex items-start gap-3 mb-4">
-        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-purple-600">
+        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-600">
             <circle cx="12" cy="12" r="10" />
             <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
@@ -75,14 +75,14 @@ export default function UserQuestionUI({ question, onAnswer, disabled = false }:
                 type="button"
                 onClick={() => handleOptionClick(optionId)}
                 disabled={disabled}
-                className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all ${
+                className={`w-full text-left px-4 py-3 rounded-lg border transition-all ${
                   disabled
                     ? 'opacity-50 cursor-not-allowed'
-                    : 'cursor-pointer hover:shadow-md'
+                    : 'cursor-pointer hover:bg-gray-50'
                 } ${
                   isSelected
-                    ? 'border-purple-500 bg-purple-50 shadow-sm'
-                    : 'border-gray-200 bg-white hover:border-purple-300'
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200 bg-white hover:border-gray-300'
                 }`}
               >
                 <div className="flex items-center gap-3">
@@ -91,7 +91,7 @@ export default function UserQuestionUI({ question, onAnswer, disabled = false }:
                     <div
                       className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
                         isSelected
-                          ? 'border-purple-500 bg-purple-500'
+                          ? 'border-blue-600 bg-blue-600'
                           : 'border-gray-300 bg-white'
                       }`}
                     >
@@ -131,10 +131,10 @@ export default function UserQuestionUI({ question, onAnswer, disabled = false }:
           type="button"
           onClick={handleSubmit}
           disabled={disabled || selectedIds.size === 0}
-          className={`w-full mt-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+          className={`w-full mt-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
             disabled || selectedIds.size === 0
               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              : 'bg-purple-600 text-white hover:bg-purple-700 shadow-sm'
+              : 'bg-blue-600 text-white hover:bg-blue-700'
           }`}
         >
           Continue with {selectedIds.size} selected

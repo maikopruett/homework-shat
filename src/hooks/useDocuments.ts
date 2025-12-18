@@ -6,21 +6,72 @@ import { searchExa, type SearchResult } from '../api/exa';
 // Agent system imports
 import { runAgentLoop } from '../agent/Loop';
 import { createAgentConfig, getPresetForMode } from '../agent/Agent';
-import type { ToolStatus, Todo, UserQuestionRequest, UserQuestionResponse } from '../agent/types';
+import type { ToolStatus, Todo, UserQuestionRequest, UserQuestionResponse, MessagePart, TextPart } from '../agent/types';
 import { detectPlanMode, getPlanModeInstructions } from '../agent/planDetector';
 
 // Model-specific prompts system
-import { buildSystemPrompt, type PromptContext, type PersonaSettings as PromptPersonaSettings } from '../prompts';
+import { buildSystemPrompt, type PromptContext, type PersonaSettings as PromptPersonaSettings, type EssayTemplate } from '../prompts';
 
+// Essay format templates
+import { PRESET_TEMPLATES } from '../prompts/formats';
+
+// Legacy type - kept for reference during migration
 export type MessageStatus = 'thinking' | 'reading' | 'searching' | 'writing' | 'formatting' | 'done';
 
 export interface DocChatMessage {
   id: string;
   role: 'user' | 'assistant';
-  content: string;
+  parts: MessagePart[];  // Message parts (text, tool calls, tool results)
+  timestamp: number;
+  isStreaming?: boolean;  // True while message is being generated
+}
+
+// Helper to get text content from message parts
+export function getMessageText(msg: DocChatMessage): string {
+  return msg.parts
+    .filter((p): p is TextPart => p.type === 'text')
+    .map((p) => p.content)
+    .join('');
+}
+
+// Legacy interface for migration
+interface LegacyDocChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content?: string;
+  parts?: MessagePart[];
   timestamp: number;
   status?: MessageStatus;
-  statusDetail?: string; // e.g., "Searching for 'climate change'..."
+  statusDetail?: string;
+  isStreaming?: boolean;
+}
+
+// Migrate legacy message format to new parts-based format
+function migrateDocChatMessage(msg: LegacyDocChatMessage): DocChatMessage {
+  // Already migrated - has parts array
+  if (Array.isArray(msg.parts) && msg.parts.length > 0) {
+    return {
+      id: msg.id,
+      role: msg.role,
+      parts: msg.parts,
+      timestamp: msg.timestamp,
+      isStreaming: msg.isStreaming ?? false,
+    };
+  }
+
+  // Convert legacy flat content to parts
+  const parts: MessagePart[] = [];
+  if (msg.content && msg.content.trim()) {
+    parts.push({ type: 'text', content: msg.content });
+  }
+
+  return {
+    id: msg.id,
+    role: msg.role,
+    parts,
+    timestamp: msg.timestamp,
+    isStreaming: false,
+  };
 }
 
 export interface Document {
@@ -42,14 +93,8 @@ export interface PersonaSettings {
   className: string;
 }
 
-export interface EssayTemplate {
-  id: string;
-  name: string;
-  type: 'preset' | 'custom';
-  htmlContent: string;           // Full HTML of the template document
-  formattingInstructions: string; // AI-readable formatting guide extracted from the doc
-  createdAt: number;
-}
+// EssayTemplate is imported from ../prompts
+export type { EssayTemplate } from '../prompts';
 
 const STORAGE_KEY = 'homework-documents';
 const MODEL_STORAGE_KEY = 'homework-selected-model';
@@ -62,7 +107,14 @@ const TEMPLATES_STORAGE_KEY = 'homework-essay-templates';
 function loadDocuments(): Document[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    if (!stored) return [];
+
+    const docs = JSON.parse(stored) as Document[];
+    // Migrate legacy message format to parts-based format
+    return docs.map(doc => ({
+      ...doc,
+      chatMessages: doc.chatMessages.map(msg => migrateDocChatMessage(msg as LegacyDocChatMessage)),
+    }));
   } catch {
     return [];
   }
@@ -114,118 +166,10 @@ function saveCustomTemplates(templates: EssayTemplate[]) {
   }
 }
 
-// Preset APA Format Template (7th Edition)
-const APA_TEMPLATE: EssayTemplate = {
-  id: 'preset-apa',
-  name: 'APA Format (7th Edition)',
-  type: 'preset',
-  htmlContent: `<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt"><strong>Title of Your Paper</strong></span></span></p>
-<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Your Name]</span></span></p>
-<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Department], [Institution Name]</span></span></p>
-<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Course Number]: [Class Name]</span></span></p>
-<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Professor's Name]</span></span></p>
-<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Current Date]</span></span></p>
-<p><span style="font-family: Times New Roman"><span style="font-size: 12pt"></span></span></p>
-<p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">This is the first paragraph of your essay. In APA format, the first line of each paragraph should be indented 0.5 inches. The entire paper should be double-spaced and use Times New Roman 12-point font. Do not add extra space between paragraphs.</span></span></p>
-<p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Continue your essay with additional paragraphs. Each paragraph should develop a specific point and flow logically from one to the next. Remember to cite your sources using in-text citations like (Author, Year) or Author (Year) stated that...</span></span></p>
-<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt"><strong>References</strong></span></span></p>
-<p style="text-indent: -0.5in; padding-left: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Author, A. A. (Year). Title of article. <em>Journal Name, Volume</em>(Issue), Page range. https://doi.org/xxxxx</span></span></p>
-<p style="text-indent: -0.5in; padding-left: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Author, B. B., & Author, C. C. (Year). <em>Title of book</em>. Publisher.</span></span></p>`,
-  formattingInstructions: `## APA FORMAT (7th Edition) TEMPLATE INSTRUCTIONS:
-
-### DOCUMENT STRUCTURE (in order):
-1. TITLE - Centered, Bold, Times New Roman 12pt
-2. AUTHOR NAME - Centered, Times New Roman 12pt (use [Your Name] if unknown)
-3. DEPARTMENT AND INSTITUTION - Centered, Times New Roman 12pt (use [Department], [Institution Name] if unknown)
-4. COURSE INFO - Centered, Times New Roman 12pt (use [Course Number]: [Class Name] if unknown)
-5. INSTRUCTOR NAME - Centered, Times New Roman 12pt (use [Professor's Name] if unknown)
-6. DATE - Centered, Times New Roman 12pt (ALWAYS use current date from system context)
-7. BLANK LINE
-8. BODY PARAGRAPHS - First-line indent 0.5in, Times New Roman 12pt
-9. REFERENCES HEADING - Centered, Bold, Times New Roman 12pt
-10. REFERENCE ENTRIES - Hanging indent (first line flush left, subsequent lines indented)
-
-### PERSONAL INFO RULES:
-- NEVER make up names, professors, courses, or institutions
-- Use placeholders if info not provided: [Your Name], [Professor's Name], [Class Name], [Institution Name]
-- ALWAYS use the current date provided in system context for the date field
-
-### FORMATTING RULES:
-- Font: Times New Roman, 12pt throughout
-- Title: Centered, Bold
-- All header info (name, institution, etc.): Centered, NOT bold
-- Body paragraphs: Left-aligned with 0.5 inch first-line indent
-- References heading: Centered, Bold
-- Reference entries: Hanging indent (reverse indent)
-- In-text citations: (Author, Year) format
-- NEVER use bold text
-
-### REQUIRED TOOL CALLS (in order):
-1. format_text with fontFamily="Times New Roman" and target="all"
-2. format_text with fontSize="12pt" and target="all"
-3. format_text with align="center" for title, author, institution, course, instructor, date lines
-4. format_text with bold for title only
-5. indent_body_paragraphs with indent_value="0.5in" and skip_lines=7 (skips header block, indents all body paragraphs automatically)
-6. format_text with align="center" and bold for References heading`,
-  createdAt: 0,
-};
-
-// Preset MLA Format Template (9th Edition)
-const MLA_TEMPLATE: EssayTemplate = {
-  id: 'preset-mla',
-  name: 'MLA Format (9th Edition)',
-  type: 'preset',
-  htmlContent: `<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Your Name]</span></span></p>
-<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Professor's Name]</span></span></p>
-<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Class Name]</span></span></p>
-<p><span style="font-family: Times New Roman"><span style="font-size: 12pt">[Current Date]</span></span></p>
-<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Title of Your Essay</span></span></p>
-<p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">This is the first paragraph of your essay. In MLA format, the first line of each paragraph should be indented half an inch (0.5 inches). The entire paper should be double-spaced and use Times New Roman 12-point font. The title should be centered but not bold, italicized, or underlined.</span></span></p>
-<p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Continue with your body paragraphs here. Each paragraph should make a clear point and support your thesis. When citing sources, use parenthetical citations with the author's last name and page number, like this (Smith 42). If you mention the author in the sentence, only include the page number: Smith argues that "quote here" (42).</span></span></p>
-<p style="text-indent: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Add more paragraphs as needed to develop your argument. Each paragraph should transition smoothly to the next and contribute to your overall thesis.</span></span></p>
-<p style="text-align: center"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Works Cited</span></span></p>
-<p style="text-indent: -0.5in; padding-left: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Last Name, First Name. "Title of Article." <em>Journal Name</em>, vol. #, no. #, Year, pp. #-#.</span></span></p>
-<p style="text-indent: -0.5in; padding-left: 0.5in"><span style="font-family: Times New Roman"><span style="font-size: 12pt">Last Name, First Name. <em>Title of Book</em>. Publisher, Year.</span></span></p>`,
-  formattingInstructions: `## MLA FORMAT (9th Edition) TEMPLATE INSTRUCTIONS:
-
-### DOCUMENT STRUCTURE (in order):
-1. YOUR NAME - Left-aligned, Times New Roman 12pt (use [Your Name] if unknown)
-2. PROFESSOR'S NAME - Left-aligned, Times New Roman 12pt (use [Professor's Name] if unknown)
-3. COURSE NAME - Left-aligned, Times New Roman 12pt (use [Class Name] if unknown)
-4. DATE - Left-aligned, Times New Roman 12pt (ALWAYS use current date from system context, format: Day Month Year)
-5. TITLE - Centered, Times New Roman 12pt, NOT bold/italic/underlined
-6. BODY PARAGRAPHS - First-line indent 0.5in, Times New Roman 12pt
-7. WORKS CITED HEADING - Centered, Times New Roman 12pt, NOT bold
-8. WORKS CITED ENTRIES - Hanging indent (first line flush left, subsequent lines indented)
-
-### PERSONAL INFO RULES:
-- NEVER make up names, professors, or courses
-- Use placeholders if info not provided: [Your Name], [Professor's Name], [Class Name]
-- ALWAYS use the current date provided in system context for the date field
-
-### FORMATTING RULES:
-- Font: Times New Roman, 12pt throughout
-- Header block (name, professor, course, date): Left-aligned, single info per line
-- Title: Centered, NO bold, NO italics, NO underline
-- Body paragraphs: Left-aligned with 0.5 inch first-line indent
-- Works Cited heading: Centered, NOT bold (unlike APA)
-- Works Cited entries: Hanging indent
-- In-text citations: (Author Page) format, no comma
-- NEVER use bold text
-
-### REQUIRED TOOL CALLS (in order):
-1. format_text with fontFamily="Times New Roman" and target="all"
-2. format_text with fontSize="12pt" and target="all"
-3. format_text with align="center" for title only
-4. indent_body_paragraphs with indent_value="0.5in" and skip_lines=5 (skips name, professor, class, date, title - indents all body paragraphs automatically)
-5. format_text with align="center" for Works Cited heading`,
-  createdAt: 0,
-};
-
-// Get all templates (presets + custom)
+// Get all templates (presets from prompts/formats + custom from localStorage)
 function getAllTemplates(): EssayTemplate[] {
   const customTemplates = loadCustomTemplates();
-  return [APA_TEMPLATE, MLA_TEMPLATE, ...customTemplates];
+  return [...PRESET_TEMPLATES, ...customTemplates];
 }
 
 function createNewDocument(title: string = 'Untitled document'): Document {
@@ -935,7 +879,7 @@ export function useDocuments() {
     const userMessage: DocChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
-      content: content.trim(),
+      parts: [{ type: 'text', content: content.trim() }],
       timestamp: Date.now(),
     };
 
@@ -1003,10 +947,9 @@ export function useDocuments() {
     const assistantMessage: DocChatMessage = {
       id: assistantMessageId,
       role: 'assistant',
-      content: '',
+      parts: [],  // Parts will be populated as the agent streams
       timestamp: Date.now(),
-      status: 'thinking',
-      statusDetail: 'Thinking...',
+      isStreaming: true,
     };
 
     setDocuments(prev => prev.map(doc =>
@@ -1037,41 +980,11 @@ export function useDocuments() {
       updatedAt: Date.now(),
     };
 
-    // Status update handler
+    // Status update handler - now just logs, actual status is derived from parts
     const handleStatusUpdate = (status: ToolStatus) => {
       console.log('[AgentSystem] Tool status:', status);
-      // Map tool status to message status
-      let messageStatus: MessageStatus = 'thinking';
-      let statusDetail: string | undefined = status.title;
-
-      if (status.toolId === 'read_document') {
-        messageStatus = 'reading';
-      } else if (status.toolId === 'search_web') {
-        messageStatus = 'searching';
-      } else if (status.toolId === 'write_content' || status.toolId === 'edit_text' || status.toolId === 'insert_content') {
-        messageStatus = 'writing';
-      } else if (status.toolId === 'format_text' || status.toolId === 'indent_body_paragraphs') {
-        messageStatus = 'formatting';
-      }
-
-      if (status.status === 'completed' || status.status === 'error') {
-        messageStatus = 'thinking';
-        statusDetail = status.status === 'error' ? `Error: ${status.title}` : undefined;
-      }
-
-      setDocuments(prev => prev.map(doc =>
-        doc.id === activeDocId
-          ? {
-              ...doc,
-              chatMessages: doc.chatMessages.map(m =>
-                m.id === assistantMessageId
-                  ? { ...m, status: messageStatus, statusDetail }
-                  : m
-              ),
-              updatedAt: Date.now()
-            }
-          : doc
-      ));
+      // Status is now derived from message parts in the UI
+      // The parts themselves are updated via onMessageUpdate
     };
 
     try {
@@ -1081,32 +994,34 @@ export function useDocuments() {
         userMessage: content.trim(),
         editor: editorRef.current ?? null,
         document: activeDocument ? { id: activeDocument.id, title: activeDocument.title, content: documentContext || '' } : null,
+        template: selectedTemplate ?? null,
         systemPrompt: systemContent,
         onStatusUpdate: handleStatusUpdate,
         onMessageUpdate: (message) => {
-          console.log('[AgentSystem] Message update:', message.role);
-          // Update todos from session when message updates
-          if (agentSession.todos.length > 0) {
-            setCurrentTodos([...agentSession.todos]);
-          }
-        },
-        onTokenReceived: (token: string) => {
-          streamingChatRef.current += token;
-          const displayContent = streamingChatRef.current.trim();
-
+          console.log('[AgentSystem] Message update:', message.role, 'parts:', message.parts.length);
+          // Sync parts from agent message to DocChatMessage
           setDocuments(prev => prev.map(doc =>
             doc.id === activeDocId
               ? {
                   ...doc,
                   chatMessages: doc.chatMessages.map(m =>
                     m.id === assistantMessageId
-                      ? { ...m, content: displayContent }
+                      ? { ...m, parts: [...message.parts], isStreaming: true }
                       : m
                   ),
                   updatedAt: Date.now()
                 }
               : doc
           ));
+          // Update todos from session when message updates
+          if (agentSession.todos.length > 0) {
+            setCurrentTodos([...agentSession.todos]);
+          }
+        },
+        onTokenReceived: (token: string) => {
+          // Token streaming is now handled via onMessageUpdate
+          // The Loop.ts already updates text parts as tokens arrive
+          streamingChatRef.current += token;
         },
         // Handle ask_user tool - pause loop and wait for user response
         onUserQuestionRequest: async (request) => {
@@ -1132,19 +1047,15 @@ export function useDocuments() {
         ));
       }
 
-      // Get final response from the result message
-      const resultTextParts = result.message.parts.filter((p): p is import('../agent/types').TextPart => p.type === 'text');
-      const resultText = resultTextParts.map(p => p.content).join('');
-
-      // Mark complete
-      const finalContent = streamingChatRef.current.trim() || resultText || '';
+      // Mark message as complete (no longer streaming)
+      // Parts are already synced via onMessageUpdate, just need to clear isStreaming
       setDocuments(prev => prev.map(doc =>
         doc.id === activeDocId
           ? {
               ...doc,
               chatMessages: doc.chatMessages.map(m =>
                 m.id === assistantMessageId
-                  ? { ...m, content: finalContent, status: 'done' as const, statusDetail: undefined }
+                  ? { ...m, parts: [...result.message.parts], isStreaming: false }
                   : m
               ),
               updatedAt: Date.now()
@@ -1178,16 +1089,20 @@ export function useDocuments() {
     } catch (err) {
       console.error('[AgentSystem] Error:', err);
       if (err instanceof Error && err.name === 'AbortError') {
-        // User aborted - keep partial response
+        // User aborted - keep partial response, mark as not streaming
         setDocuments(prev => prev.map(doc =>
           doc.id === activeDocId
             ? {
                 ...doc,
-                chatMessages: doc.chatMessages.map(m =>
-                  m.id === assistantMessageId
-                    ? { ...m, content: streamingChatRef.current || '(stopped)', status: 'done' as const, statusDetail: undefined }
-                    : m
-                ),
+                chatMessages: doc.chatMessages.map(m => {
+                  if (m.id !== assistantMessageId) return m;
+                  // Keep existing parts, add "(stopped)" if no text content
+                  const hasText = m.parts.some(p => p.type === 'text' && p.content.trim());
+                  const parts = hasText
+                    ? m.parts
+                    : [...m.parts, { type: 'text' as const, content: '(stopped)' }];
+                  return { ...m, parts, isStreaming: false };
+                }),
                 updatedAt: Date.now()
               }
             : doc

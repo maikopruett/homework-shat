@@ -7,8 +7,17 @@ import { Tool, toolSuccess, toolError } from '../Tool';
 export const clearDocumentTool = Tool.define({
   id: 'clear_document',
   name: 'Clear Document',
-  description:
-    'Clear all content from the document. ONLY use this if the document has existing content that needs to be replaced. Do NOT call this on an empty document.',
+  description: `Clear ALL content from the document. This is a destructive action.
+
+WHEN TO USE: Only when the user explicitly asks to start over, clear the document, or completely replace all content. Do NOT call this on an already empty document.
+
+PARAMETERS: None required - pass empty object {}.
+
+OUTPUT: Returns { cleared: true } on success.
+
+WARNING: This action cannot be undone. All text, formatting, and content will be permanently removed.
+
+AVOID: Do not use this before writing new content to an empty document - just use write_content directly.`,
   parameters: z.object({}),
   requiredContext: ['editor'],
   permissions: 'ask', // Destructive action, should confirm

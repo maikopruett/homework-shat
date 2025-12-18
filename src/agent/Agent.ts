@@ -56,35 +56,35 @@ const EDITOR_PERMISSIONS: AgentPermissions = {
   canEditDocument: true,
   canSearch: true,
   canSpawnSubagent: false,
-  maxFollowUps: 5, // Allow multi-step editing workflows
+  maxFollowUps: 20, // Allow multi-step editing workflows
 };
 
 const CHAT_PERMISSIONS: AgentPermissions = {
   canEditDocument: false,
   canSearch: true,
   canSpawnSubagent: false,
-  maxFollowUps: 2, // Limit for read-only mode
+  maxFollowUps: 10, // Limit for read-only mode
 };
 
 const PLANNER_PERMISSIONS: AgentPermissions = {
   canEditDocument: false,
   canSearch: true,
   canSpawnSubagent: false,
-  maxFollowUps: 3, // Moderate for planning workflows
+  maxFollowUps: 15, // Moderate for planning workflows
 };
 
 const ESSAY_PLANNER_PERMISSIONS: AgentPermissions = {
   canEditDocument: true,
   canSearch: true,
   canSpawnSubagent: false,
-  maxFollowUps: 8, // More for planning + execution workflow
+  maxFollowUps: 20, // More for planning + execution workflow
 };
 
 const FULL_PERMISSIONS: AgentPermissions = {
   canEditDocument: true,
   canSearch: true,
   canSpawnSubagent: true,
-  maxFollowUps: 10, // Maximum flexibility
+  maxFollowUps: 20, // Maximum flexibility
 };
 
 // ==================== Agent Presets ====================
@@ -218,7 +218,7 @@ export function createCustomAgent(config: {
       canEditDocument: config.permissions?.canEditDocument ?? true,
       canSearch: config.permissions?.canSearch ?? true,
       canSpawnSubagent: config.permissions?.canSpawnSubagent ?? false,
-      maxFollowUps: config.permissions?.maxFollowUps ?? 5,
+      maxFollowUps: config.permissions?.maxFollowUps ?? 20,
     },
   };
 }

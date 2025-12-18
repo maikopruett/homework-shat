@@ -7,7 +7,23 @@ import { Tool, toolSuccess } from '../Tool';
 export const todoReadTool = Tool.define({
   id: 'todoread',
   name: 'Read Todos',
-  description: 'Read the current task list to check pending work and track progress.',
+  description: `Read the current task list to check pending work and progress.
+
+WHEN TO USE: To review what tasks are pending, in progress, or completed. Helpful when resuming work or checking what's left to do.
+
+PARAMETERS: None required - pass empty object {}.
+
+OUTPUT: Returns { todos, total, pending, in_progress, completed, incomplete } where:
+- todos: Array of formatted task strings with status icons
+  * [ ] = pending
+  * [~] = in progress
+  * [x] = completed
+  * [-] = cancelled
+- total: Total number of tasks
+- pending: Count of pending tasks
+- in_progress: Count of in-progress tasks
+- completed: Count of completed tasks
+- incomplete: Count of pending + in_progress tasks`,
   parameters: z.object({}),
   requiredContext: ['session'],
 

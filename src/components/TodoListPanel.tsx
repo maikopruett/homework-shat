@@ -65,7 +65,7 @@ function getStatusColor(status: Todo['status']) {
 }
 
 export default function TodoListPanel({ todos, progress }: TodoListPanelProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
   // Don't render if no todos
   if (todos.length === 0) {

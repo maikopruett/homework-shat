@@ -13,6 +13,10 @@ export interface ToolSpec<TParams = unknown, TResult = unknown> {
   execute: (params: TParams, context: ToolContext) => Promise<ToolResult<TResult>>;
   permissions?: PermissionLevel;
   requiredContext?: ('document' | 'editor' | 'session')[];
+  /** Example usage of the tool - shown in error messages to guide AI */
+  examples?: Record<string, unknown>[];
+  /** Custom validation error formatter - provides AI-friendly error messages */
+  formatValidationError?: (error: z.ZodError) => string;
 }
 
 export interface ToolContext {
@@ -72,7 +76,7 @@ export interface AgentPermissions {
   canEditDocument: boolean;
   canSearch: boolean;
   canSpawnSubagent: boolean;
-  maxFollowUps: number;  // How many tool execution cycles allowed (1-10)
+  maxFollowUps: number;  // How many tool execution cycles allowed (1-20)
 }
 
 export interface AgentConfig {
@@ -85,6 +89,8 @@ export interface AgentConfig {
   maxTokens?: number;
   tools: ToolPermissions;
   permissions: AgentPermissions;
+  /** Options for controlling tool calling behavior */
+  toolCallingOptions?: ToolCallingOptions;
 }
 
 // ==================== Session Types ====================
@@ -154,18 +160,65 @@ export interface DocumentInfo {
 
 // ==================== OpenRouter Integration Types ====================
 
+/**
+ * JSON Schema property type for tool parameters.
+ * Supports the full JSON Schema specification used by OpenRouter.
+ */
+export interface JsonSchemaProperty {
+  type?: string | string[];
+  description?: string;
+  enum?: (string | number | boolean | null)[];
+  const?: unknown;
+  items?: JsonSchemaProperty;
+  properties?: Record<string, JsonSchemaProperty>;
+  required?: string[];
+  additionalProperties?: boolean | JsonSchemaProperty;
+  default?: unknown;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  format?: string;
+  oneOf?: JsonSchemaProperty[];
+  anyOf?: JsonSchemaProperty[];
+  allOf?: JsonSchemaProperty[];
+  nullable?: boolean;
+  minItems?: number;
+  maxItems?: number;
+}
+
+/**
+ * Tool choice configuration for controlling model tool usage.
+ */
+export type ToolChoiceOption =
+  | 'auto'
+  | 'none'
+  | 'required'
+  | { type: 'function'; function: { name: string } };
+
+/**
+ * Options for controlling tool calling behavior.
+ */
+export interface ToolCallingOptions {
+  /** How the model should choose tools */
+  tool_choice?: ToolChoiceOption;
+  /** Whether tools can be called in parallel (default: true) */
+  parallel_tool_calls?: boolean;
+}
+
 // JSON Schema format for OpenRouter tool definitions
 export interface OpenRouterToolDefinition {
   type: 'function';
   function: {
     name: string;
     description: string;
-    strict: boolean;
+    strict?: boolean;
     parameters: {
       type: 'object';
-      properties: Record<string, unknown>;
-      required: string[];
-      additionalProperties: boolean;
+      properties: Record<string, JsonSchemaProperty>;
+      required?: string[];
+      additionalProperties?: boolean;
     };
   };
 }

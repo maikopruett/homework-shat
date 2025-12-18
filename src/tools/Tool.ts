@@ -30,6 +30,10 @@ export class Tool {
     execute: (params: TParams, context: ToolContext) => Promise<ToolResult<TResult>>;
     permissions?: PermissionLevel;
     requiredContext?: ('document' | 'editor' | 'session')[];
+    /** Example usage of the tool - shown in error messages to guide AI */
+    examples?: Record<string, unknown>[];
+    /** Custom validation error formatter - provides AI-friendly error messages */
+    formatValidationError?: (error: z.ZodError) => string;
   }): ToolSpec<TParams, TResult> {
     return {
       id: spec.id,
@@ -39,6 +43,8 @@ export class Tool {
       execute: spec.execute,
       permissions: spec.permissions ?? 'allow',
       requiredContext: spec.requiredContext ?? [],
+      examples: spec.examples,
+      formatValidationError: spec.formatValidationError,
     };
   }
 }

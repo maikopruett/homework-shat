@@ -9,8 +9,20 @@ import { extractDocumentStyling, formatStylingForAI } from './utils';
 export const readDocumentTool = Tool.define({
   id: 'read_document',
   name: 'Read Document',
-  description:
-    'Read and analyze the current document content. You MUST call this before making any edits to understand what exists in the document.',
+  description: `Read and analyze the current document content.
+
+WHEN TO USE: Always call this BEFORE making any edits to understand what exists. Required before using edit_text or format_text on specific content.
+
+PARAMETERS:
+- focus: "full" for entire document, or specific section like "introduction", "formatting", "conclusion", "citations"
+
+OUTPUT: Returns { content, word_count, character_count, styling } where:
+- content: The full text content of the document
+- word_count: Total number of words
+- character_count: Total characters
+- styling: Current fonts, sizes, and formatting applied
+
+ERRORS: Fails if no editor is available (document not open).`,
   parameters: z.object({
     focus: z
       .string()
@@ -19,6 +31,12 @@ export const readDocumentTool = Tool.define({
       ),
   }),
   requiredContext: ['editor'],
+  examples: [
+    { focus: 'full' },
+    { focus: 'formatting' },
+    { focus: 'introduction' },
+    { focus: 'conclusion' },
+  ],
 
   async execute({ focus }, ctx) {
     const editor = ctx.editor;

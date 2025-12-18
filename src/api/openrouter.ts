@@ -25,22 +25,66 @@ export interface ChatMessage {
   name?: string;
 }
 
+/**
+ * JSON Schema property type for OpenRouter tool parameters.
+ * Supports the full JSON Schema specification used by OpenRouter.
+ */
+export interface JsonSchemaProperty {
+  type?: string | string[];
+  description?: string;
+  enum?: (string | number | boolean | null)[];
+  const?: unknown;
+  items?: JsonSchemaProperty;
+  properties?: Record<string, JsonSchemaProperty>;
+  required?: string[];
+  additionalProperties?: boolean | JsonSchemaProperty;
+  default?: unknown;
+  minimum?: number;
+  maximum?: number;
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  format?: string;
+  oneOf?: JsonSchemaProperty[];
+  anyOf?: JsonSchemaProperty[];
+  allOf?: JsonSchemaProperty[];
+  not?: JsonSchemaProperty;
+  nullable?: boolean;
+  minItems?: number;
+  maxItems?: number;
+  uniqueItems?: boolean;
+}
+
+/**
+ * Tool choice configuration for controlling how models use tools.
+ * - 'auto': Model decides whether to call tools (default)
+ * - 'none': Disable tool calling
+ * - 'required': Force the model to call at least one tool
+ * - object: Force a specific tool by name
+ */
+export type ToolChoice =
+  | 'auto'
+  | 'none'
+  | 'required'
+  | { type: 'function'; function: { name: string } };
+
+/**
+ * OpenRouter tool definition following the function calling specification.
+ * Uses strict mode by default for reliable parameter validation.
+ */
 export interface ToolDefinition {
   type: 'function';
   function: {
     name: string;
     description: string;
-    strict?: boolean; // Enable strict schema validation
+    strict?: boolean;
     parameters: {
       type: 'object';
-      properties: Record<string, {
-        type: string;
-        description?: string;
-        enum?: string[];
-        items?: { type: string };
-      }>;
+      properties: Record<string, JsonSchemaProperty>;
       required?: string[];
-      additionalProperties?: boolean; // Set to false for strict mode
+      additionalProperties?: boolean;
     };
   };
 }
@@ -73,7 +117,8 @@ export interface StreamCallbacks {
 export interface SendMessageOptions {
   model?: string;
   tools?: ToolDefinition[];
-  tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
+  tool_choice?: ToolChoice;
+  parallel_tool_calls?: boolean;
   abortSignal?: AbortSignal;
 }
 
@@ -135,7 +180,8 @@ export async function sendMessageStream(
   model: string = DEFAULT_MODEL,
   abortSignal?: AbortSignal,
   tools?: ToolDefinition[],
-  tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } }
+  tool_choice?: ToolChoice,
+  parallel_tool_calls?: boolean
 ): Promise<void> {
   console.log('[API] sendMessageStream called', { model, messageCount: messages.length, hasTools: !!tools, toolCount: tools?.length, tool_choice });
   const startTime = performance.now();
@@ -158,6 +204,10 @@ export async function sendMessageStream(
       requestBody.tools = tools;
       if (tool_choice) {
         requestBody.tool_choice = tool_choice;
+      }
+      // Control whether tools can be called in parallel (default: true for most models)
+      if (parallel_tool_calls !== undefined) {
+        requestBody.parallel_tool_calls = parallel_tool_calls;
       }
     }
     
@@ -339,7 +389,8 @@ export async function sendMessageStream(
         model,
         abortSignal,
         tools,
-        tool_choice
+        tool_choice,
+        parallel_tool_calls
       );
       return; // The recursive call will handle completion
     }

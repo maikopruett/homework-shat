@@ -27,6 +27,18 @@ export function getModelFamily(modelId: string): ModelFamily {
   return 'default';
 }
 
+/**
+ * Check if a model supports proper OpenRouter tool calling.
+ * Grok has issues with tool calling - it outputs XML-style parameters
+ * in text content instead of proper JSON in tool_calls.
+ */
+export function modelSupportsTools(modelId: string): boolean {
+  const family = getModelFamily(modelId);
+  // Grok has broken tool calling via OpenRouter
+  if (family === 'grok') return false;
+  return true;
+}
+
 // Model prompt registry
 const MODEL_PROMPTS: Record<ModelFamily, ModelPromptConfig> = {
   claude: CLAUDE_PROMPT,

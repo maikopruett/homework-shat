@@ -11,14 +11,23 @@ import { UserQuestionSchema } from '../../agent/types';
 export const askUserTool = Tool.define({
   id: 'ask_user',
   name: 'Ask User',
-  description: `Ask the user a clarifying question with multiple choice options. The user will see clickable buttons for each option.
+  description: `Ask the user a question with clickable multiple-choice options. Pauses execution until user responds.
 
-IMPORTANT: Each option MUST have:
-- id: A unique identifier string (e.g., "opt1", "biology", "mla")
-- label: The button text the user sees (e.g., "MLA Format", "500 words")
-- description: Optional extra context shown below the label
+WHEN TO USE: When you need clarification on preferences, format choices, topic direction, or any decision the user should make.
 
-Example usage:
+PARAMETERS:
+- question: The question text to display to the user
+- options: Array of 2-6 options. Each option MUST have:
+  * id: Unique identifier (e.g., "mla", "apa", "opt1")
+  * label: Button text the user sees (e.g., "MLA Format")
+  * description: (optional) Extra context shown below the label
+- allowMultiple: (optional, default false) Set true to allow selecting multiple options
+
+OUTPUT: Returns { question, selectedOptions, selectedLabels } where:
+- selectedOptions: Array of selected option IDs
+- selectedLabels: Array of selected option labels
+
+EXAMPLE:
 {
   "question": "What citation format should I use?",
   "options": [
@@ -27,7 +36,9 @@ Example usage:
     {"id": "none", "label": "No citations needed"}
   ],
   "allowMultiple": false
-}`,
+}
+
+ERRORS: Returns error if options array has fewer than 2 items or if options are missing required fields.`,
   parameters: UserQuestionSchema,
   requiredContext: ['session'],
 
