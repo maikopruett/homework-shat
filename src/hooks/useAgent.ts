@@ -24,7 +24,7 @@ export type AgentStatus = 'idle' | 'thinking' | 'reading' | 'writing' | 'searchi
 
 interface UseAgentOptions {
   documentId?: string;
-  initialMode?: 'edit' | 'chat';
+  initialMode?: 'edit' | 'plan';
   model?: string;
   onDocumentUpdate?: (content: string) => void;
 }
@@ -49,20 +49,20 @@ interface UseAgentReturn {
     content: string,
     editorRef: React.RefObject<TiptapEditorHandle | null>,
     systemPrompt: string,
-    mode?: 'edit' | 'chat'
+    mode?: 'edit' | 'plan'
   ) => Promise<void>;
   stopGeneration: () => void;
   clearSession: () => void;
-  setMode: (mode: 'edit' | 'chat') => void;
+  setMode: (mode: 'edit' | 'plan') => void;
 
   // Configuration
-  mode: 'edit' | 'chat';
+  mode: 'edit' | 'plan';
   agentConfig: AgentConfig;
 }
 
 // ==================== Helper Functions ====================
 
-function createNewSession(mode: 'edit' | 'chat', model: string, documentId?: string): Session {
+function createNewSession(mode: 'edit' | 'plan', model: string, documentId?: string): Session {
   const preset = getPresetForMode(mode);
   const config = createAgentConfig(preset, { model });
 
@@ -114,7 +114,7 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
   const [statusDetail, setStatusDetail] = useState('');
   const [currentToolStatus, setCurrentToolStatus] = useState<ToolStatus | null>(null);
   const [streamingContent, setStreamingContent] = useState('');
-  const [mode, setModeState] = useState<'edit' | 'chat'>(initialMode);
+  const [mode, setModeState] = useState<'edit' | 'plan'>(initialMode);
 
   // Refs
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -135,7 +135,7 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
       content: string,
       editorRef: React.RefObject<TiptapEditorHandle | null>,
       systemPrompt: string,
-      messageMode?: 'edit' | 'chat'
+      messageMode?: 'edit' | 'plan'
     ) => {
       if (isRunning || !content.trim()) return;
 
@@ -246,7 +246,7 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
     setStreamingContent('');
   }, []);
 
-  const setMode = useCallback((newMode: 'edit' | 'chat') => {
+  const setMode = useCallback((newMode: 'edit' | 'plan') => {
     setModeState(newMode);
     // Session will be recreated on next message with new mode
   }, []);

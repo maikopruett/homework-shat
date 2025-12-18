@@ -13,15 +13,11 @@ import type { AgentConfig, AgentMode, AgentPermissions, ToolPermissions } from '
 
 const EDITOR_TOOLS: ToolPermissions = {
   enabled: [], // Empty = all tools enabled
-  disabled: ['todowrite', 'todoread'], // No task tracking in basic edit mode
+  disabled: ['todowrite', 'todoread', 'ask_user'], // No planning in edit mode - direct execution
   askFirst: ['clear_document'], // Confirm destructive actions
 };
 
-const CHAT_TOOLS: ToolPermissions = {
-  enabled: ['read_document', 'search_web', 'todoread'],
-  disabled: [],
-  askFirst: [],
-};
+// Chat mode removed - now using edit/plan modes only
 
 const PLANNER_TOOLS: ToolPermissions = {
   enabled: ['read_document', 'search_web', 'todowrite', 'todoread', 'ask_user'],
@@ -59,12 +55,7 @@ const EDITOR_PERMISSIONS: AgentPermissions = {
   maxFollowUps: 20, // Allow multi-step editing workflows
 };
 
-const CHAT_PERMISSIONS: AgentPermissions = {
-  canEditDocument: false,
-  canSearch: true,
-  canSpawnSubagent: false,
-  maxFollowUps: 10, // Limit for read-only mode
-};
+// Chat permissions removed - now using edit/plan modes only
 
 const PLANNER_PERMISSIONS: AgentPermissions = {
   canEditDocument: false,
@@ -102,17 +93,7 @@ export const AGENT_PRESETS = {
     permissions: EDITOR_PERMISSIONS,
   },
 
-  /**
-   * Chat Assistant - Read-only mode for conversations.
-   * Can read documents and search but cannot edit.
-   */
-  chat: {
-    id: 'chat',
-    name: 'Chat Assistant',
-    mode: 'chat' as AgentMode,
-    tools: CHAT_TOOLS,
-    permissions: CHAT_PERMISSIONS,
-  },
+  // Chat preset removed - now using edit/plan modes only
 
   /**
    * Task Planner - Planning mode with task tracking.
@@ -226,6 +207,6 @@ export function createCustomAgent(config: {
 /**
  * Get the appropriate preset for a chat mode.
  */
-export function getPresetForMode(mode: 'edit' | 'chat'): AgentPresetKey {
-  return mode === 'edit' ? 'editor' : 'chat';
+export function getPresetForMode(mode: 'edit' | 'plan'): AgentPresetKey {
+  return mode === 'edit' ? 'editor' : 'essay_planner';
 }

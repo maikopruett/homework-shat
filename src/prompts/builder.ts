@@ -9,9 +9,9 @@
  * 5. Context injection (document, search results, template, etc.)
  */
 
-import { WRITING_STYLE_RULES, BANNED_WORDS_STRING, BANNED_WORDS_SHORT, PERSONAL_INFO_PLACEHOLDER } from './core/style';
-import { WORKFLOW_RULES, CHAT_MODE_BASE_RULES } from './core/workflow';
-import { type PersonaSettings, generatePersonaEditPrompt, generatePersonaChatPrompt } from './core/persona';
+import { WRITING_STYLE_RULES, BANNED_WORDS_STRING, PERSONAL_INFO_PLACEHOLDER } from './core/style';
+import { WORKFLOW_RULES, PLAN_MODE_INSTRUCTIONS } from './core/workflow';
+import { type PersonaSettings, generatePersonaEditPrompt } from './core/persona';
 import { CLAUDE_PROMPT, type ModelPromptConfig } from './models/claude';
 import { GROK_PROMPT } from './models/grok';
 import { GEMINI_PROMPT } from './models/gemini';
@@ -81,7 +81,7 @@ export interface EssayTemplate {
 // Context for building prompts
 export interface PromptContext {
   modelId: string;
-  mode: 'edit' | 'chat';
+  mode: 'edit' | 'plan';
   persona?: PersonaSettings | null;
   documentTitle?: string;
   documentContent?: string;
@@ -89,7 +89,7 @@ export interface PromptContext {
   searchResults?: SearchResult[];
   template?: EssayTemplate | null;
   currentDate: string;
-  planModeInstructions?: string; // From plan detector
+  // Plan mode instructions are automatically included when mode === 'plan'
 }
 
 /**
@@ -134,16 +134,28 @@ ${WORKFLOW_RULES}`;
 }
 
 /**
- * Build the default (non-persona) chat mode prompt
+ * Build the default (non-persona) plan mode prompt
+ * Plan mode adds the planning instructions to the edit prompt
  */
-function buildDefaultChatPrompt(modelPrompt: ModelPromptConfig): string {
-  return `${modelPrompt.identity.replace('editor', 'writing')} (Chat-only mode)
+function buildDefaultPlanPrompt(modelPrompt: ModelPromptConfig): string {
+  return `${modelPrompt.identity}
 
-${CHAT_MODE_BASE_RULES}
+## Personal Info
+${PERSONAL_INFO_PLACEHOLDER}
 
-No AI buzzwords (${BANNED_WORDS_SHORT}).
+${modelPrompt.toolGuidance}
 
-${modelPrompt.strengths}`;
+## Writing Style (Sound Human)
+${WRITING_STYLE_RULES}
+
+BANNED: ${BANNED_WORDS_STRING}
+
+${modelPrompt.strengths}
+
+## Workflow
+${WORKFLOW_RULES}
+
+${PLAN_MODE_INSTRUCTIONS}`;
 }
 
 /**
@@ -154,24 +166,23 @@ export function buildSystemPrompt(context: PromptContext): string {
   const family = getModelFamily(context.modelId);
   const modelPrompt = MODEL_PROMPTS[family];
 
-  // Step 1: Get base prompt (persona or default, edit or chat)
+  // Step 1: Get base prompt (persona or default, edit or plan)
   let prompt: string;
 
   if (context.persona && context.persona.documentContent) {
-    // Persona mode - use persona-specific prompt
-    prompt = context.mode === 'edit'
-      ? generatePersonaEditPrompt(context.persona)
-      : generatePersonaChatPrompt(context.persona);
+    // Persona mode - use persona-specific prompt (same base for edit and plan)
+    prompt = generatePersonaEditPrompt(context.persona);
+    prompt += `\n\n${modelPrompt.toolGuidance}`;
 
-    // Add model-specific tool guidance for persona edit mode
-    if (context.mode === 'edit') {
-      prompt += `\n\n${modelPrompt.toolGuidance}`;
+    // Add plan mode instructions for persona in plan mode
+    if (context.mode === 'plan') {
+      prompt += `\n\n${PLAN_MODE_INSTRUCTIONS}`;
     }
   } else {
     // Default mode - use model-specific base prompt
     prompt = context.mode === 'edit'
       ? buildDefaultEditPrompt(modelPrompt)
-      : buildDefaultChatPrompt(modelPrompt);
+      : buildDefaultPlanPrompt(modelPrompt);
   }
 
   // Step 2: Add date and document context
@@ -216,10 +227,8 @@ ${context.template.htmlContent}
 4. Preserve all template formatting (fonts, sizes, spacing, alignment)`;
   }
 
-  // Step 5: Add plan mode instructions if detected
-  if (context.planModeInstructions) {
-    prompt += `\n\n${context.planModeInstructions}`;
-  }
+  // Plan mode instructions are now included in buildDefaultPlanPrompt
+  // No need for separate injection here
 
   return prompt;
 }

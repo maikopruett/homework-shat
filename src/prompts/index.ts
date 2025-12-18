@@ -36,14 +36,13 @@ export {
 
 export {
   WORKFLOW_RULES,
-  CHAT_MODE_BASE_RULES,
+  PLAN_MODE_INSTRUCTIONS,
 } from './core/workflow';
 
 export {
   type PersonaSettings,
   buildStudentInfoSection,
   generatePersonaEditPrompt,
-  generatePersonaChatPrompt,
 } from './core/persona';
 
 // Model configs (for debugging/inspection)

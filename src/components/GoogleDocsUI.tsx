@@ -5,7 +5,8 @@ import GlobalChatPanel from './GlobalChatPanel';
 import TiptapEditor, { type TiptapEditorHandle, type EditorState } from './TiptapEditor';
 import type { SearchResult } from '../api/exa';
 import { parseFile, getAcceptedFileTypes, isValidFileType, type ParsedFile } from '../utils/fileParser';
-import type { Todo, UserQuestionRequest } from '../agent/types';
+import type { Todo, UserQuestionRequest, ToolStatus } from '../agent/types';
+import { getToolDisplayInfo } from '../agent/toolDisplayInfo';
 
 interface GoogleDocsUIProps {
   documents: Document[];
@@ -37,6 +38,8 @@ interface GoogleDocsUIProps {
   todoProgress: { total: number; completed: number; percentage: number };
   pendingQuestion: UserQuestionRequest | null;
   onAnswerQuestion: (questionId: string, selectedOptions: string[]) => void;
+  // Tool status for ghost mode
+  currentToolStatus: ToolStatus | null;
 }
 
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72];
@@ -103,6 +106,7 @@ export default function GoogleDocsUI({
   todoProgress,
   pendingQuestion,
   onAnswerQuestion,
+  currentToolStatus,
 }: GoogleDocsUIProps) {
   const editorRef = useRef<TiptapEditorHandle>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -1359,33 +1363,47 @@ ${html}
               <div className="text-right align-middle whitespace-nowrap font-['Google_Sans',_Roboto,_RobotoDraft,_Helvetica,_Arial,_sans-serif] absolute top-0 right-0 z-[900] flex items-center h-16 bg-[#f9fbfd] pl-4 pr-3">
                 {/* Ghost Mode Indicator */}
                 {ghostModeEnabled && (
-                  <div className="inline-block relative mr-2" title="Ghost Mode Active - Press Ctrl+Enter to send">
-                    <div 
+                  <div className="inline-block relative mr-2" title={currentToolStatus?.status === 'running' ? currentToolStatus.title : "Ghost Mode Active - Press Ctrl+Enter to send"}>
+                    <div
                       className={`relative z-[1] text-center whitespace-nowrap outline-none text-xs leading-7 font-medium justify-center items-center inline-flex w-10 h-10 rounded-full border border-transparent transition-all duration-300 select-none ${
-                        isSearching 
-                          ? 'bg-purple-100 text-purple-600' 
-                          : isLoading 
-                            ? 'bg-blue-100 text-blue-600' 
+                        isSearching
+                          ? 'bg-purple-100 text-purple-600'
+                          : isLoading
+                            ? 'bg-blue-100 text-blue-600'
                             : 'text-gray-500 hover:bg-black/[0.06]'
                       }`}
                       role="status"
-                      aria-label={`Ghost Mode: ${isSearching ? 'Researching' : isLoading ? 'Working' : 'Ready'}`}
+                      aria-label={`Ghost Mode: ${currentToolStatus?.status === 'running' ? currentToolStatus.title : isSearching ? 'Researching' : isLoading ? 'Working' : 'Ready'}`}
                     >
-                      <svg 
-                        width="24" 
-                        height="24" 
-                        viewBox="0 0 24 24" 
-                        fill={
-                          isSearching 
-                            ? '#9333ea' 
-                            : isLoading 
-                              ? '#3b82f6' 
-                              : '#5f6368'
+                      {/* Dynamic icon - shows tool icon when running, ghost icon otherwise */}
+                      {(() => {
+                        const isToolRunning = currentToolStatus?.status === 'running';
+                        const iconColor = isSearching ? '#9333ea' : isLoading ? '#3b82f6' : '#5f6368';
+
+                        if (isToolRunning) {
+                          const ToolIcon = getToolDisplayInfo(currentToolStatus.toolId).Icon;
+                          return (
+                            <ToolIcon
+                              size={24}
+                              color={iconColor}
+                              className="animate-pulse"
+                            />
+                          );
                         }
-                        className={`transition-all duration-300 ${(isLoading || isSearching) ? 'animate-pulse' : ''}`}
-                      >
-                        <path d="M12 2C7.58 2 4 5.58 4 10v8c0 1.1.9 2 2 2h1c0-1.1.9-2 2-2s2 .9 2 2h2c0-1.1.9-2 2-2s2 .9 2 2h1c1.1 0 2-.9 2-2v-8c0-4.42-3.58-8-8-8zm-2 9c-.83 0-1.5-.67-1.5-1.5S9.17 8 10 8s1.5.67 1.5 1.5S10.83 11 10 11zm4 0c-.83 0-1.5-.67-1.5-1.5S13.17 8 14 8s1.5.67 1.5 1.5S14.83 11 14 11z"/>
-                      </svg>
+
+                        // Default ghost icon
+                        return (
+                          <svg
+                            width="24"
+                            height="24"
+                            viewBox="0 0 24 24"
+                            fill={iconColor}
+                            className={(isLoading || isSearching) ? 'animate-pulse' : ''}
+                          >
+                            <path d="M12 2C7.58 2 4 5.58 4 10v8c0 1.1.9 2 2 2h1c0-1.1.9-2 2-2s2 .9 2 2h2c0-1.1.9-2 2-2s2 .9 2 2h1c1.1 0 2-.9 2-2v-8c0-4.42-3.58-8-8-8zm-2 9c-.83 0-1.5-.67-1.5-1.5S9.17 8 10 8s1.5.67 1.5 1.5S10.83 11 10 11zm4 0c-.83 0-1.5-.67-1.5-1.5S13.17 8 14 8s1.5.67 1.5 1.5S14.83 11 14 11z"/>
+                          </svg>
+                        );
+                      })()}
                       
                       {/* Template indicator */}
                       {selectedTemplate && (
@@ -2322,6 +2340,7 @@ ${html}
           todoProgress={todoProgress}
           pendingQuestion={pendingQuestion}
           onAnswerQuestion={onAnswerQuestion}
+          ghostModeEnabled={ghostModeEnabled}
         />
       </div>
 

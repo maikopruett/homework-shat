@@ -7,7 +7,7 @@ import { searchExa, type SearchResult } from '../api/exa';
 import { runAgentLoop } from '../agent/Loop';
 import { createAgentConfig, getPresetForMode } from '../agent/Agent';
 import type { ToolStatus, Todo, UserQuestionRequest, UserQuestionResponse, MessagePart, TextPart } from '../agent/types';
-import { detectPlanMode, getPlanModeInstructions } from '../agent/planDetector';
+// Plan detection removed - mode is now explicitly controlled via toggle
 
 // Model-specific prompts system
 import { buildSystemPrompt, type PromptContext, type PersonaSettings as PromptPersonaSettings, type EssayTemplate } from '../prompts';
@@ -594,7 +594,7 @@ function generateTemplateInstructions(htmlContent: string): string {
 // See: src/prompts/models/claude.ts, grok.ts, minimax.ts for model-specific prompts
 // See: src/prompts/builder.ts for prompt composition logic
 
-export type ChatMode = 'chat' | 'edit';
+export type ChatMode = 'edit' | 'plan';
 
 export function useDocuments() {
   const [documents, setDocuments] = useState<Document[]>(() => {
@@ -643,6 +643,9 @@ export function useDocuments() {
   const [currentTodos, setCurrentTodos] = useState<Todo[]>([]);
   const [pendingQuestion, setPendingQuestion] = useState<UserQuestionRequest | null>(null);
   const questionResolverRef = useRef<((response: UserQuestionResponse) => void) | null>(null);
+
+  // Tool status for ghost mode indicator
+  const [currentToolStatus, setCurrentToolStatus] = useState<ToolStatus | null>(null);
 
   // Calculate todo progress
   const todoProgress = {
@@ -906,10 +909,6 @@ export function useDocuments() {
     // Build context for the agent
     const documentContext = editorRef.current?.getText() || activeDocument.content;
 
-    // Detect plan mode for essay writing (needed for prompt context)
-    const planDetection = detectPlanMode(content);
-    const usePlanMode = mode === 'edit' && planDetection.shouldUsePlanMode;
-
     // Build current date string
     const today = new Date();
     const currentDate = today.toLocaleDateString('en-US', {
@@ -942,7 +941,7 @@ export function useDocuments() {
       })),
       template: selectedTemplate || undefined,
       currentDate,
-      planModeInstructions: usePlanMode ? getPlanModeInstructions() : undefined,
+      // Plan mode instructions are now included in the buildSystemPrompt based on mode
     };
 
     const systemContent = buildSystemPrompt(promptContext);
@@ -962,11 +961,8 @@ export function useDocuments() {
         : doc
     ));
 
-    // Create agent config based on mode and plan detection
-    let presetKey = getPresetForMode(mode);
-    if (usePlanMode) {
-      presetKey = 'essay_planner';
-    }
+    // Create agent config based on mode (edit or plan)
+    const presetKey = getPresetForMode(mode);
 
     const agentConfig = createAgentConfig(presetKey, {
       model: selectedModel,
@@ -984,11 +980,10 @@ export function useDocuments() {
       updatedAt: Date.now(),
     };
 
-    // Status update handler - now just logs, actual status is derived from parts
+    // Status update handler - tracks current tool for ghost mode indicator
     const handleStatusUpdate = (status: ToolStatus) => {
       console.log('[AgentSystem] Tool status:', status);
-      // Status is now derived from message parts in the UI
-      // The parts themselves are updated via onMessageUpdate
+      setCurrentToolStatus(status);
     };
 
     try {
@@ -1125,6 +1120,7 @@ export function useDocuments() {
       }
     } finally {
       setIsLoading(false);
+      setCurrentToolStatus(null);
       abortControllerRef.current = null;
     }
   }, [activeDocument, activeDocId, isLoading, selectedModel, personaSettings, selectedTemplate, generateTitleFromMessage]);
@@ -1168,5 +1164,7 @@ export function useDocuments() {
     todoProgress,
     pendingQuestion,
     answerQuestion,
+    // Tool status for ghost mode
+    currentToolStatus,
   };
 }

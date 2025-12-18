@@ -38,6 +38,8 @@ interface ChatSidebarProps {
   todoProgress: { total: number; completed: number; percentage: number };
   pendingQuestion: UserQuestionRequest | null;
   onAnswerQuestion: (questionId: string, selectedOptions: string[]) => void;
+  // Ghost mode
+  ghostModeEnabled?: boolean;
 }
 
 // Status icon helper is now handled by MessageParts component
@@ -68,6 +70,7 @@ export default function ChatSidebar({
   todoProgress,
   pendingQuestion,
   onAnswerQuestion,
+  ghostModeEnabled = false,
 }: ChatSidebarProps) {
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
@@ -440,34 +443,36 @@ export default function ChatSidebar({
             <div className="flex items-center bg-gray-200 rounded-full p-0.5">
               <button
                 type="button"
-                onClick={() => onModeChange('chat')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
-                  chatMode === 'chat' 
-                    ? 'bg-white text-gray-800 shadow-sm' 
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-                title="Chat mode - discuss without editing"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                </svg>
-                Chat
-              </button>
-              <button
-                type="button"
                 onClick={() => onModeChange('edit')}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
-                  chatMode === 'edit' 
-                    ? 'bg-white text-green-700 shadow-sm' 
+                  chatMode === 'edit'
+                    ? 'bg-white text-green-700 shadow-sm'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
-                title="Edit mode - AI can modify document"
+                title="Edit mode - AI makes changes directly"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                 </svg>
                 Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => onModeChange('plan')}
+                disabled={ghostModeEnabled}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                  chatMode === 'plan'
+                    ? 'bg-white text-purple-700 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                } ${ghostModeEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title={ghostModeEnabled ? "Plan mode unavailable in Ghost Mode" : "Plan mode - AI asks questions and creates a task list first"}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 11l3 3L22 4"/>
+                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                </svg>
+                Plan
               </button>
             </div>
           </div>
@@ -485,9 +490,9 @@ export default function ChatSidebar({
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                   </svg>
-                  <p className="text-[13px] leading-relaxed max-w-[240px]">Ask me to write, edit, or improve your document. I'll make changes directly in the editor.</p>
+                  <p className="text-[13px] leading-relaxed max-w-[240px]">Ask me to write, edit, or improve your document. I'll make changes directly without asking questions.</p>
                   <div className="flex flex-wrap gap-2 mt-4 justify-center">
-                    <span className="bg-green-50 text-green-700 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-green-100">"Write an essay about..."</span>
+                    <span className="bg-green-50 text-green-700 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-green-100">"Add a paragraph about..."</span>
                     <span className="bg-green-50 text-green-700 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-green-100">"Make it bold"</span>
                     <span className="bg-green-50 text-green-700 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-green-100">"Change color to blue"</span>
                   </div>
@@ -495,13 +500,14 @@ export default function ChatSidebar({
               ) : (
                 <>
                   <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" strokeWidth="1.5" className="mb-4 opacity-50">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                    <path d="M9 11l3 3L22 4"/>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
                   </svg>
-                  <p className="text-[13px] leading-relaxed max-w-[240px]">Chat about your document without making changes. Ask questions, get feedback, or brainstorm ideas.</p>
+                  <p className="text-[13px] leading-relaxed max-w-[240px]">Describe what you want to write. I'll ask clarifying questions and create a task list before starting.</p>
                   <div className="flex flex-wrap gap-2 mt-4 justify-center">
-                    <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-blue-100">"What do you think?"</span>
-                    <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-blue-100">"How can I improve this?"</span>
-                    <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-blue-100">"Is this clear?"</span>
+                    <span className="bg-purple-50 text-purple-700 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-purple-100">"Write an essay about..."</span>
+                    <span className="bg-purple-50 text-purple-700 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-purple-100">"Help me write a report"</span>
+                    <span className="bg-purple-50 text-purple-700 px-3 py-1.5 rounded-2xl text-xs cursor-pointer transition-colors hover:bg-purple-100">"I need a paper on..."</span>
                   </div>
                 </>
               )}
@@ -748,11 +754,11 @@ export default function ChatSidebar({
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={handleChatKeyDown}
                 placeholder={
-                  attachedFiles.length > 0 
-                    ? "Add instructions or just send..." 
-                    : chatMode === 'edit' 
-                      ? "Ask AI to write or edit..." 
-                      : "Chat about your document..."
+                  attachedFiles.length > 0
+                    ? "Add instructions or just send..."
+                    : chatMode === 'edit'
+                      ? "Ask AI to write or edit..."
+                      : "Describe what you want to write..."
                 }
                 rows={1}
                 disabled={isLoading}

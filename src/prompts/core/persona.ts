@@ -3,7 +3,7 @@
  */
 
 import { PERSONAL_INFO_PLACEHOLDER } from './style';
-import { WORKFLOW_RULES, CHAT_MODE_BASE_RULES } from './workflow';
+import { WORKFLOW_RULES } from './workflow';
 
 export interface PersonaSettings {
   documentName: string;
@@ -56,16 +56,4 @@ ${persona.documentContent}
 ${WORKFLOW_RULES}`;
 }
 
-/**
- * Generate persona-aware chat mode base prompt
- */
-export function generatePersonaChatPrompt(persona: PersonaSettings): string {
-  const studentInfo = buildStudentInfoSection(persona);
-
-  return `Chat-only mode. ${CHAT_MODE_BASE_RULES}
-${studentInfo}
-Communicate in the style of this reference document:
-${persona.documentContent}
-
-Match their tone, vocabulary, and sentence patterns exactly.`;
-}
+// Chat mode prompt removed - now using edit/plan modes only
