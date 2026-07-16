@@ -34,7 +34,7 @@ export function getModelFamily(modelId: string): ModelFamily {
 }
 
 /**
- * Check if a model supports proper OpenRouter tool calling.
+ * Check if a model supports OpenAI-compatible tool calling.
  */
 export function modelSupportsTools(modelId: string): boolean {
   const family = getModelFamily(modelId);

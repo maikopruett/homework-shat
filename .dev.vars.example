@@ -1,0 +1,2 @@
+# Cloudflare Worker secrets for local development
+EXA_API_KEY=your-exa-api-key

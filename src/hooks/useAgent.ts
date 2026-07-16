@@ -17,6 +17,7 @@ import type {
   DocumentInfo,
 } from '../agent/types';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
+import { DEFAULT_MODEL } from '../api/workersAi';
 
 // ==================== Types ====================
 
@@ -103,7 +104,7 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
   const {
     documentId,
     initialMode = 'edit',
-    model = 'x-ai/grok-4-fast',
+    model = DEFAULT_MODEL,
     onDocumentUpdate,
   } = options;
 

@@ -7,6 +7,7 @@ import type { SearchResult } from '../api/exa';
 import { parseFile, getAcceptedFileTypes, isValidFileType, type ParsedFile } from '../utils/fileParser';
 import type { Todo, UserQuestionRequest, ToolStatus } from '../agent/types';
 import { getToolDisplayInfo } from '../agent/toolDisplayInfo';
+import { IS_CONVEX_CONFIGURED } from '../config/convex';
 
 interface GoogleDocsUIProps {
   documents: Document[];
@@ -1446,7 +1447,7 @@ ${html}
                 </div>
                 
                 {/* Comments Button - Global Chat */}
-                <div className="inline-block relative">
+                {IS_CONVEX_CONFIGURED && <div className="inline-block relative">
                   <button 
                     className={`relative z-[1] text-center whitespace-nowrap outline-none text-xs leading-7 font-medium justify-center items-center inline-flex align-middle w-10 h-10 cursor-pointer rounded-full border transition-colors select-none mr-1.5 ${
                       globalChatOpen 
@@ -1463,7 +1464,7 @@ ${html}
                       <path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
                     </svg>
                   </button>
-                </div>
+                </div>}
                 
                 {/* Meet Button */}
                 <div>
@@ -2757,10 +2758,12 @@ ${html}
       )}
 
       {/* Global Chat Panel */}
-      <GlobalChatPanel 
-        isOpen={globalChatOpen} 
-        onClose={() => setGlobalChatOpen(false)} 
-      />
+      {IS_CONVEX_CONFIGURED && (
+        <GlobalChatPanel
+          isOpen={globalChatOpen}
+          onClose={() => setGlobalChatOpen(false)}
+        />
+      )}
 
       {/* Help Modal */}
       {helpModalOpen && (

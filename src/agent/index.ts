@@ -23,8 +23,8 @@ export type {
   ToolResultPart,
   MessageMetadata,
   DocumentInfo,
-  OpenRouterToolDefinition,
-  OpenRouterToolCall,
+  ChatCompletionToolDefinition,
+  ChatCompletionToolCall,
 } from './types';
 
 // Agent configuration

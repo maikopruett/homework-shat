@@ -1,7 +1,17 @@
-interface Env {
-  OPENROUTER_API_KEY: string;
+interface WorkerEnv extends Env {
   EXA_API_KEY: string;
-  ASSETS: Fetcher;
+}
+
+const DEFAULT_WORKERS_AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+const SUPPORTED_WORKERS_AI_MODELS = new Set([
+  DEFAULT_WORKERS_AI_MODEL,
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  '@cf/mistralai/mistral-small-3.1-24b-instruct',
+]);
+
+interface WorkersAiChatRequest extends Record<string, unknown> {
+  model?: string;
+  messages?: unknown[];
 }
 
 interface ExaSearchResult {
@@ -13,7 +23,7 @@ interface ExaSearchResult {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: WorkerEnv): Promise<Response> {
     const url = new URL(request.url);
 
     // Handle API routes
@@ -28,9 +38,9 @@ export default {
     // Serve static assets for all other routes
     return env.ASSETS.fetch(request);
   },
-};
+} satisfies ExportedHandler<WorkerEnv>;
 
-async function handleChat(request: Request, env: Env): Promise<Response> {
+async function handleChat(request: Request, env: WorkerEnv): Promise<Response> {
   // Handle CORS preflight
   if (request.method === 'OPTIONS') {
     return new Response(null, {
@@ -52,48 +62,42 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
   }
 
   try {
-    const body = await request.text();
-
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': request.headers.get('Origin') || 'https://docfake.com',
-        'X-Title': 'Homework Helper',
-      },
-      body,
-    });
-
-    const contentType = response.headers.get('Content-Type') || '';
-    const isStreaming = contentType.includes('text/event-stream');
-
-    if (isStreaming) {
-      return new Response(response.body, {
-        status: response.status,
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-        },
-      });
+    const contentLength = Number(request.headers.get('Content-Length') || 0);
+    if (contentLength > 1_000_000) {
+      return Response.json({ error: 'Request body is too large' }, { status: 413 });
     }
 
-    const data = await response.text();
-    return new Response(data, {
-      status: response.status,
-      headers: { 'Content-Type': 'application/json' },
+    const body = await request.json<WorkersAiChatRequest>();
+    const requestedModel = typeof body.model === 'string' ? body.model : DEFAULT_WORKERS_AI_MODEL;
+
+    if (!SUPPORTED_WORKERS_AI_MODELS.has(requestedModel)) {
+      return Response.json({ error: 'Unsupported Workers AI model' }, { status: 400 });
+    }
+
+    if (!Array.isArray(body.messages) || body.messages.length === 0) {
+      return Response.json({ error: 'Messages are required' }, { status: 400 });
+    }
+
+    const inputs = { ...body };
+    delete inputs.model;
+    const model: string = requestedModel;
+    const response = await env.AI.run(model, inputs, {
+      returnRawResponse: true,
+      signal: request.signal,
     });
+
+    const headers = new Headers(response.headers);
+    headers.set('Cache-Control', 'no-store');
+
+    return new Response(response.body, { status: response.status, headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    console.error(JSON.stringify({ message: 'Workers AI chat failed', error: message }));
+    return Response.json({ error: message }, { status: 500 });
   }
 }
 
-async function handleSearch(request: Request, env: Env): Promise<Response> {
+async function handleSearch(request: Request, env: WorkerEnv): Promise<Response> {
   // Handle CORS preflight
   if (request.method === 'OPTIONS') {
     return new Response(null, {
@@ -177,4 +181,3 @@ async function handleSearch(request: Request, env: Env): Promise<Response> {
     });
   }
 }
-

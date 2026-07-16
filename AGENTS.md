@@ -1,10 +1,10 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-This is a React-based homework assistance application with an AI-powered document editor. It uses Workers AI for LLM access, Exa for web search, TipTap for rich text editing, and Cloudflare Workers for API routing.
+This is a React-based homework assistance application with an AI-powered document editor. It uses OpenRouter for LLM access, Exa for web search, TipTap for rich text editing, and Cloudflare Workers for API proxying.
 
 ## Development Commands
 
@@ -44,9 +44,9 @@ Available <tech>: tailwindcss, react, opencode, effect, tiptap
 ```
 
 ### Environment Setup
-- Copy `.dev.vars.example` to `.dev.vars` for local Worker secrets
+- Copy `.env.example` to `.env.local`
+- Set API keys using Cloudflare secrets: `npx wrangler secret put OPENROUTER_API_KEY`
 - Set `EXA_API_KEY` secret for search functionality
-- Workers AI is provided through the native `AI` binding and requires no LLM API key
 
 ## Architecture Overview
 
@@ -64,7 +64,7 @@ Available <tech>: tailwindcss, react, opencode, effect, tiptap
 - `GlobalChatPanel` - Standalone chat not tied to any document
 
 **API Integration:**
-- `src/api/workersAi.ts` - Workers AI client with streaming support, tool calling, and metrics tracking
+- `src/api/openrouter.ts` - OpenRouter API client with streaming support, tool calling, and metrics tracking
 - `src/api/exa.ts` - Exa search API client for web search functionality
 - Both APIs are proxied through Cloudflare Worker at `/api/chat` and `/api/search`
 
@@ -72,9 +72,9 @@ Available <tech>: tailwindcss, react, opencode, effect, tiptap
 
 **Worker (`worker/index.ts`):**
 - Serves static assets from `dist/` directory
-- Runs `/api/chat` through the native Workers AI binding (streaming chat completions)
+- Proxies `/api/chat` → OpenRouter API (streaming chat completions)
 - Proxies `/api/search` → Exa API (web search)
-- Uses `EXA_API_KEY` for search; Workers AI requires no API-key secret
+- Uses environment secrets: `OPENROUTER_API_KEY`, `EXA_API_KEY`
 
 **Convex (Optional/Legacy):**
 - `convex/` directory contains Convex backend setup (messages schema and chat queries)
@@ -82,7 +82,7 @@ Available <tech>: tailwindcss, react, opencode, effect, tiptap
 
 ### AI Tool Calling System
 
-The application implements OpenAI-compatible tool calling through Workers AI for document manipulation:
+The application implements OpenRouter tool calling for document manipulation:
 
 **Document Tools:**
 - `read_document` - AI reads current document content
@@ -128,7 +128,7 @@ The application implements OpenAI-compatible tool calling through Workers AI for
 
 ### API Streaming Pattern
 ```typescript
-// Workers AI streaming with callbacks
+// OpenRouter streaming with callbacks
 await sendMessageStream(messages, {
   onToken: (token) => { /* handle streaming token */ },
   onToolCalls: async (toolCalls) => { /* execute tools, return results */ },
@@ -163,9 +163,9 @@ When implementing tool handlers:
 - Imperative API via ref: `insertContent()`, `clearContent()`, `getHTML()`, `getText()`
 
 ### Model Selection
-- Models covered by the Workers AI free allocation are defined in the `AVAILABLE_MODELS` array in `workersAi.ts`
-- Default: `@cf/google/gemma-4-26b-a4b-it`
-- Persisted to localStorage with key `homework-workers-ai-selected-model`
+- Available models defined in `AVAILABLE_MODELS` array in `openrouter.ts`
+- Default: `x-ai/grok-4-fast`
+- Persisted to localStorage with key `homework-selected-model`
 
 ### Search Integration
 - Exa API provides high-quality web search results

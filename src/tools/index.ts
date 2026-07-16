@@ -6,7 +6,7 @@
  */
 
 import { toolRegistry, ToolRegistry } from './registry';
-import type { ToolSpec, OpenRouterToolDefinition } from '../agent/types';
+import type { ToolSpec, ChatCompletionToolDefinition } from '../agent/types';
 
 // Document tools
 import {
@@ -53,7 +53,7 @@ toolRegistry.register(askUserTool);
 
 export { toolRegistry, ToolRegistry };
 export { Tool, toolSuccess, toolError } from './Tool';
-export type { ToolSpec, OpenRouterToolDefinition };
+export type { ToolSpec, ChatCompletionToolDefinition };
 
 // Re-export individual tools for direct import
 export {
@@ -78,11 +78,11 @@ export {
 export * from './document/utils';
 
 /**
- * Get all tools formatted for OpenRouter API.
+ * Get all tools formatted for an OpenAI-compatible chat-completions API.
  * This is the main function to use when setting up tool calling.
  */
-export function getOpenRouterTools(): OpenRouterToolDefinition[] {
-  return toolRegistry.toOpenRouterFormat(toolRegistry.getAll());
+export function getChatCompletionTools(): ChatCompletionToolDefinition[] {
+  return toolRegistry.toChatCompletionsFormat(toolRegistry.getAll());
 }
 
 /**

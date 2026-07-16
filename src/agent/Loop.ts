@@ -6,7 +6,7 @@
  */
 
 import { toolRegistry } from '../tools';
-import { sendMessageStream } from '../api/openrouter';
+import { sendMessageStream } from '../api/workersAi';
 import type {
   Session,
   Message,
@@ -23,7 +23,7 @@ import type {
   ReasoningDetail,
 } from './types';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
-import type { ChatMessage, ToolCall } from '../api/openrouter';
+import type { ChatMessage, ToolCall } from '../api/workersAi';
 import { validateFormatting, modelSupportsTools, type EssayTemplate } from '../prompts';
 
 // ==================== Types ====================
@@ -64,6 +64,8 @@ function buildMessageHistory(
   userMessage: string,
   systemPrompt: string
 ): ChatMessage[] {
+  const usesDeepSeekReasoning = session.agentConfig.model.includes('deepseek');
+
   // System message
   const messages: ChatMessage[] = [
     {
@@ -111,14 +113,16 @@ function buildMessageHistory(
             },
             thoughtSignature: part.thoughtSignature, // Preserve for Gemini
           })),
-          reasoning_details: msg.metadata?.reasoningDetails,
+          reasoning_details: usesDeepSeekReasoning ? undefined : msg.metadata?.reasoningDetails,
+          reasoning_content: usesDeepSeekReasoning ? msg.metadata?.reasoningContent : undefined,
         });
       } else if (textContent) {
         // Regular assistant message without tool calls
         messages.push({
           role: 'assistant',
           content: textContent,
-          reasoning_details: msg.metadata?.reasoningDetails,
+          reasoning_details: usesDeepSeekReasoning ? undefined : msg.metadata?.reasoningDetails,
+          reasoning_content: usesDeepSeekReasoning ? msg.metadata?.reasoningContent : undefined,
         });
       }
     }
@@ -206,7 +210,7 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
   // Get available tools for this agent (skip for models with broken tool calling)
   const supportsTools = modelSupportsTools(agentConfig.model);
   const availableTools = supportsTools ? toolRegistry.getForAgent(agentConfig) : [];
-  const openRouterTools = supportsTools ? toolRegistry.toOpenRouterFormat(availableTools) : [];
+  const chatCompletionTools = supportsTools ? toolRegistry.toChatCompletionsFormat(availableTools) : [];
 
   // Build initial message history
   const messages = buildMessageHistory(session, userMessage, systemPrompt);
@@ -467,12 +471,19 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
             // Update message metadata
             // Use reasoning from parts if available, otherwise from metrics
             const reasoningDetails = reasoningPart?.details ?? metrics?.reasoningDetails;
+            const reasoningContent = agentConfig.model.includes('deepseek')
+              ? reasoningPart?.details
+                  .filter((detail): detail is Extract<ReasoningDetail, { type: 'reasoning.text' }> => detail.type === 'reasoning.text')
+                  .map((detail) => detail.text)
+                  .join('') || metrics?.reasoningContent
+              : undefined;
             assistantMessage.metadata = {
               model: agentConfig.model,
               ttft: metrics?.ttft,
               tps: metrics?.tps,
               tokenCount: metrics?.totalTokens,
               reasoningDetails, // For reasoning models - preserved for follow-up calls
+              reasoningContent,
             };
             onMessageUpdate(assistantMessage);
           },
@@ -484,9 +495,9 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
         agentConfig.model,
         abortSignal,
         // Pass tool definitions if available
-        openRouterTools.length > 0 ? (openRouterTools as unknown as import('../api/openrouter').ToolDefinition[]) : undefined,
+        chatCompletionTools.length > 0 ? (chatCompletionTools as import('../api/workersAi').ToolDefinition[]) : undefined,
         // Pass tool choice from agent config, default to 'auto'
-        openRouterTools.length > 0 ? (agentConfig.toolCallingOptions?.tool_choice ?? 'auto') : undefined,
+        chatCompletionTools.length > 0 ? (agentConfig.toolCallingOptions?.tool_choice ?? 'auto') : undefined,
         // Pass parallel tool calls option from agent config
         agentConfig.toolCallingOptions?.parallel_tool_calls
       );

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { sendMessageStream } from '../api/openrouter';
-import type { ChatMessage, StreamMetrics } from '../api/openrouter';
+import { sendMessageStream } from '../api/workersAi';
+import type { ChatMessage, StreamMetrics } from '../api/workersAi';
 
 export interface Message {
   id: string;

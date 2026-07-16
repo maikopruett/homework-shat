@@ -149,8 +149,7 @@ export interface ToolResultPart {
   error?: string;
 }
 
-// Reasoning detail types per OpenRouter docs
-// https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+// OpenAI-compatible reasoning detail types used by supported model gateways.
 export type ReasoningDetail =
   | { type: 'reasoning.summary'; summary: string; id?: string | null; format?: string; index?: number }
   | { type: 'reasoning.encrypted'; data: string; id?: string | null; format?: string; index?: number }
@@ -163,6 +162,7 @@ export interface MessageMetadata {
   ttft?: number;  // Time to first token
   tps?: number;   // Tokens per second
   reasoningDetails?: ReasoningDetail[]; // For reasoning models - required for tool calling follow-ups
+  reasoningContent?: string; // Raw reasoning required by DeepSeek-compatible tool-call history
 }
 
 // ==================== Document Types ====================
@@ -174,11 +174,11 @@ export interface DocumentInfo {
   content: string;  // HTML content
 }
 
-// ==================== OpenRouter Integration Types ====================
+// ==================== Chat Completions Integration Types ====================
 
 /**
  * JSON Schema property type for tool parameters.
- * Supports the full JSON Schema specification used by OpenRouter.
+ * Supports the JSON Schema specification used by OpenAI-compatible gateways.
  */
 export interface JsonSchemaProperty {
   type?: string | string[];
@@ -223,8 +223,8 @@ export interface ToolCallingOptions {
   parallel_tool_calls?: boolean;
 }
 
-// JSON Schema format for OpenRouter tool definitions
-export interface OpenRouterToolDefinition {
+// JSON Schema format for OpenAI-compatible tool definitions
+export interface ChatCompletionToolDefinition {
   type: 'function';
   function: {
     name: string;
@@ -239,8 +239,8 @@ export interface OpenRouterToolDefinition {
   };
 }
 
-// Tool call from OpenRouter response
-export interface OpenRouterToolCall {
+// Tool call from an OpenAI-compatible response
+export interface ChatCompletionToolCall {
   id: string;
   type: 'function';
   function: {

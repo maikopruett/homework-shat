@@ -8,6 +8,7 @@
  */
 
 import type { AgentConfig, AgentMode, AgentPermissions, ToolPermissions } from './types';
+import { DEFAULT_MODEL } from '../api/workersAi';
 
 // ==================== Preset Configurations ====================
 
@@ -189,7 +190,7 @@ export function createAgentConfig(
     id: base.id,
     name: base.name,
     mode: base.mode,
-    model: overrides?.model ?? 'x-ai/grok-4-fast',
+    model: overrides?.model ?? DEFAULT_MODEL,
     systemPrompt: overrides?.systemPrompt ?? '',
     temperature: overrides?.temperature ?? 0.7,
     maxTokens: overrides?.maxTokens ?? 4096,
@@ -222,7 +223,7 @@ export function createCustomAgent(config: {
     id: config.id,
     name: config.name,
     mode: config.mode,
-    model: config.model ?? 'x-ai/grok-4-fast',
+    model: config.model ?? DEFAULT_MODEL,
     systemPrompt: config.systemPrompt ?? '',
     temperature: config.temperature ?? 0.7,
     maxTokens: config.maxTokens ?? 4096,

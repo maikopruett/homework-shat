@@ -10,14 +10,14 @@ export interface ModelInfo {
 }
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
-  { id: 'anthropic/claude-haiku-4.5', name: 'Haiku 4.5', provider: 'Anthropic', isBest: true, isDefault: true },
-  { id: 'google/gemini-3-flash-preview', name: 'Gemini Flash', provider: 'Google', isFastest: true},
+  { id: '@cf/google/gemma-4-26b-a4b-it', name: 'Gemma 4 26B', provider: 'Cloudflare', isDefault: true, isBest: true },
+  { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', name: 'Mistral Small 3.1', provider: 'Cloudflare', isFastest: true },
+  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B', provider: 'Cloudflare' },
 ];
 
 export const DEFAULT_MODEL = AVAILABLE_MODELS.find(m => m.isDefault)?.id || AVAILABLE_MODELS[0].id;
 
-// Reasoning detail types per OpenRouter docs
-// https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+// OpenAI-compatible reasoning detail types returned by supported Workers AI models.
 export type ReasoningDetail =
   | { type: 'reasoning.summary'; summary: string; id?: string | null; format?: string; index?: number }
   | { type: 'reasoning.encrypted'; data: string; id?: string | null; format?: string; index?: number }
@@ -30,11 +30,11 @@ export interface ChatMessage {
   tool_call_id?: string;
   name?: string;
   reasoning_details?: ReasoningDetail[]; // For reasoning models - must be preserved for tool calling follow-ups
+  reasoning_content?: string; // DeepSeek-compatible reasoning replay for tool calling follow-ups
 }
 
 /**
- * JSON Schema property type for OpenRouter tool parameters.
- * Supports the full JSON Schema specification used by OpenRouter.
+ * JSON Schema property type for OpenAI-compatible tool parameters.
  */
 export interface JsonSchemaProperty {
   type?: string | string[];
@@ -78,7 +78,7 @@ export type ToolChoice =
   | { type: 'function'; function: { name: string } };
 
 /**
- * OpenRouter tool definition following the function calling specification.
+ * OpenAI-compatible tool definition following the function calling specification.
  * Uses strict mode by default for reliable parameter validation.
  */
 export interface ToolDefinition {
@@ -112,6 +112,7 @@ export interface StreamMetrics {
   totalTokens: number;
   totalTime: number; // Total generation time in ms
   reasoningDetails?: ReasoningDetail[]; // For reasoning models - required for tool calling follow-ups
+  reasoningContent?: string; // Raw reasoning content required by DeepSeek-compatible models
 }
 
 export interface StreamCallbacks {
@@ -159,7 +160,7 @@ interface ToolCallDelta {
     arguments?: string;
   };
   thoughtSignature?: string; // Gemini direct format
-  extra_content?: { google?: { thought_signature?: string } }; // OpenRouter format
+  extra_content?: { google?: { thought_signature?: string } }; // Provider extension format
 }
 
 function accumulateToolCallDelta(
@@ -168,7 +169,7 @@ function accumulateToolCallDelta(
 ): void {
   const existing = accumulated.get(delta.index);
 
-  // Extract thoughtSignature from either direct field or OpenRouter's extra_content
+  // Extract thoughtSignature from either direct field or a provider extension.
   const thoughtSignature = delta.thoughtSignature || delta.extra_content?.google?.thought_signature;
 
   if (!existing) {
@@ -273,6 +274,7 @@ export async function sendMessageStream(
     let accumulatedContent = '';
     let toolCallStartSignaled = false; // Track if we've signaled tool call start
     let accumulatedReasoningDetails: ReasoningDetail[] = []; // For reasoning models
+    let accumulatedReasoningContent = ''; // DeepSeek-compatible reasoning replay
 
     while (true) {
       // Add timeout to stream reads to prevent infinite hangs
@@ -349,7 +351,7 @@ export async function sendMessageStream(
                 for (let i = 0; i < messageToolCalls.length; i++) {
                   const tc = messageToolCalls[i];
                   if (tc.id && tc.function?.name) {
-                    // Extract thoughtSignature from either direct field or OpenRouter's extra_content
+                    // Extract thoughtSignature from either direct field or a provider extension.
                     const thoughtSignature = tc.thoughtSignature || tc.extra_content?.google?.thought_signature;
                     accumulatedToolCalls.set(i, {
                       id: tc.id,
@@ -370,9 +372,11 @@ export async function sendMessageStream(
               }
 
               // Capture reasoning_details for reasoning models (required for tool calling follow-ups)
-              // OpenRouter normalizes to reasoning_details, but log the full choice for debugging
+              // Capture reasoning details when the selected model exposes them.
               const deltaReasoningDetails = choice.delta?.reasoning_details;
               const messageReasoningDetails = choice.message?.reasoning_details;
+              const deltaReasoningContent = choice.delta?.reasoning_content;
+              const messageReasoningContent = choice.message?.reasoning_content;
 
               // Debug: Log if we see any reasoning-related fields
               if (choice.delta && Object.keys(choice.delta).some(k => k.includes('reason') || k.includes('think') || k.includes('thought'))) {
@@ -399,6 +403,14 @@ export async function sendMessageStream(
                   callbacks.onReasoningToken?.(detail);
                 }
               }
+              if (typeof deltaReasoningContent === 'string' && deltaReasoningContent) {
+                accumulatedReasoningContent += deltaReasoningContent;
+                callbacks.onReasoningToken?.({ type: 'reasoning.text', text: deltaReasoningContent });
+              }
+              if (typeof messageReasoningContent === 'string' && messageReasoningContent) {
+                accumulatedReasoningContent = messageReasoningContent;
+                callbacks.onReasoningToken?.({ type: 'reasoning.text', text: messageReasoningContent });
+              }
             }
           } catch {
             // Skip malformed JSON
@@ -421,6 +433,7 @@ export async function sendMessageStream(
       toolCallsWithSignatures: Array.from(accumulatedToolCalls.values()).filter(tc => tc.thoughtSignature).length,
       reasoningDetailsCount: accumulatedReasoningDetails.length,
       hasReasoningDetails: accumulatedReasoningDetails.length > 0,
+      hasReasoningContent: accumulatedReasoningContent.length > 0,
     });
 
     // Handle tool calls if present - check for various finish reasons
@@ -439,6 +452,7 @@ export async function sendMessageStream(
         content: accumulatedContent || null,
         tool_calls: toolCalls,
         reasoning_details: accumulatedReasoningDetails.length > 0 ? accumulatedReasoningDetails : undefined,
+        reasoning_content: accumulatedReasoningContent || undefined,
       };
       
       const newMessages = [...messages, assistantMessage, ...toolResults];
@@ -469,6 +483,7 @@ export async function sendMessageStream(
       totalTokens: tokenCount,
       totalTime: Math.round(totalTime),
       reasoningDetails: accumulatedReasoningDetails.length > 0 ? accumulatedReasoningDetails : undefined,
+      reasoningContent: accumulatedReasoningContent || undefined,
     }));
     console.log('[API] onComplete finished');
   } catch (err) {
@@ -502,7 +517,7 @@ Generate a title:`;
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'x-ai/grok-4-fast', // Use fast model for quick title generation
+        model: DEFAULT_MODEL,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }

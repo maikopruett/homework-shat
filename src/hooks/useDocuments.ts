@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { generateTitle, DEFAULT_MODEL } from '../api/openrouter';
+import { generateTitle, DEFAULT_MODEL, AVAILABLE_MODELS } from '../api/workersAi';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
 import { searchExa, type SearchResult } from '../api/exa';
 
@@ -111,7 +111,7 @@ export interface PersonaSettings {
 export type { EssayTemplate } from '../prompts';
 
 const STORAGE_KEY = 'homework-documents';
-const MODEL_STORAGE_KEY = 'homework-selected-model';
+const MODEL_STORAGE_KEY = 'homework-workers-ai-selected-model';
 const PERSONA_STORAGE_KEY = 'homework-persona-settings';
 const GHOST_MODE_STORAGE_KEY = 'homework-ghost-mode';
 const TEMPLATES_STORAGE_KEY = 'homework-essay-templates';
@@ -634,7 +634,10 @@ export function useDocuments() {
   const [error, setError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     try {
-      return localStorage.getItem(MODEL_STORAGE_KEY) || DEFAULT_MODEL;
+      const storedModel = localStorage.getItem(MODEL_STORAGE_KEY);
+      return AVAILABLE_MODELS.some((model) => model.id === storedModel)
+        ? storedModel as string
+        : DEFAULT_MODEL;
     } catch {
       return DEFAULT_MODEL;
     }

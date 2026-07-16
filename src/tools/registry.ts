@@ -5,7 +5,7 @@ import type {
   ToolContext,
   ToolResult,
   AgentConfig,
-  OpenRouterToolDefinition,
+  ChatCompletionToolDefinition,
   JsonSchemaProperty,
 } from '../agent/types';
 
@@ -19,7 +19,7 @@ type AnyToolSpec = ToolSpec<any, any>;
  * Provides:
  * - Tool registration and discovery
  * - Zod schema validation before execution
- * - Conversion to OpenRouter format
+ * - Conversion to OpenAI-compatible chat-completions format
  * - Permission checking
  * - Context validation
  */
@@ -88,9 +88,9 @@ export class ToolRegistry {
   }
 
   /**
-   * Convert tools to OpenRouter function calling format.
+   * Convert tools to OpenAI-compatible function calling format.
    */
-  toOpenRouterFormat(tools: AnyToolSpec[]): OpenRouterToolDefinition[] {
+  toChatCompletionsFormat(tools: AnyToolSpec[]): ChatCompletionToolDefinition[] {
     return tools.map((tool) => ({
       type: 'function' as const,
       function: {
@@ -342,7 +342,7 @@ export class ToolRegistry {
   }
 
   /**
-   * Convert a Zod schema to JSON Schema for OpenRouter.
+   * Convert a Zod schema to JSON Schema for chat completions.
    */
   private zodToJsonSchema(tool: AnyToolSpec): {
     type: 'object';

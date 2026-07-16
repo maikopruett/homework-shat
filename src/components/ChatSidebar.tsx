@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import type { Document, ChatMode, EssayTemplate } from '../hooks/useDocuments';
 import { getMessageText } from '../hooks/useDocuments';
-import { AVAILABLE_MODELS } from '../api/openrouter';
+import { AVAILABLE_MODELS } from '../api/workersAi';
 import { parseFile, isValidFileType, getAcceptedFileTypes, type ParsedFile } from '../utils/fileParser';
 import type { SearchResult } from '../api/exa';
 import type { TiptapEditorHandle } from './TiptapEditor';

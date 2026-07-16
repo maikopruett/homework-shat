@@ -5,7 +5,7 @@
  *   import { buildSystemPrompt, getModelFamily } from './prompts';
  *
  *   const prompt = buildSystemPrompt({
- *     modelId: 'anthropic/claude-haiku-4.5',
+ *     modelId: '@cf/google/gemma-4-26b-a4b-it',
  *     mode: 'edit',
  *     currentDate: '12/17/2025',
  *     documentTitle: 'My Essay',
