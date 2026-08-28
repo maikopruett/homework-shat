@@ -71,30 +71,34 @@ export function useChat() {
     };
     setMessages(prev => [...prev, assistantMessage]);
 
-    await sendMessageStream(chatHistory, {
-      onToken: (token) => {
-        streamingContentRef.current += token;
-        setMessages(prev => prev.map(m => 
-          m.id === assistantId 
-            ? { ...m, content: streamingContentRef.current }
-            : m
-        ));
-      },
-      onComplete: (metrics) => {
-        // Final update with both content and metrics
-        setMessages(prev => prev.map(m => 
-          m.id === assistantId 
-            ? { ...m, content: streamingContentRef.current, metrics }
-            : m
-        ));
-        setIsLoading(false);
-      },
-      onError: (err) => {
-        setError(err.message);
-        setMessages(prev => prev.filter(m => m.id !== assistantId));
-        setIsLoading(false);
-      }
-    });
+    try {
+      await sendMessageStream(chatHistory, {
+        onToken: (token) => {
+          streamingContentRef.current += token;
+          setMessages(prev => prev.map(m =>
+            m.id === assistantId
+              ? { ...m, content: streamingContentRef.current }
+              : m
+          ));
+        },
+        onComplete: (metrics) => {
+          // Final update with both content and metrics
+          setMessages(prev => prev.map(m =>
+            m.id === assistantId
+              ? { ...m, content: streamingContentRef.current, metrics }
+              : m
+          ));
+          setIsLoading(false);
+        },
+        onError: (err) => {
+          setError(err.message);
+          setMessages(prev => prev.filter(m => m.id !== assistantId));
+          setIsLoading(false);
+        }
+      });
+    } catch {
+      // sendMessageStream reports the user-facing error through onError.
+    }
   }, [messages, isLoading]);
 
   const clearChat = useCallback(() => {

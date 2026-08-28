@@ -527,13 +527,12 @@ export default function ChatSidebar({
                 <div className="flex flex-col gap-2 max-w-[85%] self-start">
                   <MessagePartsRenderer
                     parts={msg.parts}
-                    isStreaming={msg.isStreaming}
                     metadata={msg.metadata}
                   />
                 </div>
               )}
-              {/* Streaming status indicator - only show when there are parts (to avoid duplicate with MessagePartsRenderer's initial "Thinking..." state) */}
-              {msg.role === 'assistant' && msg.isStreaming && msg.parts.length > 0 && (
+              {/* One canonical status row for every streaming assistant message. */}
+              {msg.role === 'assistant' && msg.isStreaming && (
                 <StreamingStatus parts={msg.parts} />
               )}
             </div>

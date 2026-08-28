@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import type { MessagePart, TextPart, ToolCallPart, ToolResultPart, ReasoningPart, MessageMetadata } from '../../agent/types';
+import type { MessagePart, TextPart, ToolCallPart, ToolResultPart, MessageMetadata } from '../../agent/types';
 import { getToolDisplayInfo, formatArgsPreview } from '../../agent/toolDisplayInfo';
 import { Check, X, Circle } from 'lucide-react';
 
@@ -15,7 +15,6 @@ import { Check, X, Circle } from 'lucide-react';
 
 interface MessagePartsProps {
   parts: MessagePart[];
-  isStreaming?: boolean;
   metadata?: MessageMetadata;
 }
 
@@ -30,7 +29,7 @@ interface PartRendererProps {
 /**
  * Renders all parts of an assistant message.
  */
-export function MessagePartsRenderer({ parts, isStreaming }: MessagePartsProps) {
+export function MessagePartsRenderer({ parts }: MessagePartsProps) {
   // Build a map of tool results by callId for pairing with tool calls
   const resultsByCallId = new Map<string, ToolResultPart>();
   for (const part of parts) {
@@ -45,16 +44,6 @@ export function MessagePartsRenderer({ parts, isStreaming }: MessagePartsProps) 
     (part): part is TextPart | ToolCallPart =>
       part.type === 'text' || part.type === 'tool_call'
   );
-
-  if (renderableParts.length === 0 && isStreaming) {
-    // Show thinking indicator when streaming but no parts yet
-    return (
-      <div className="flex items-center gap-2 text-gray-500 text-sm py-2">
-        <Spinner />
-        <span>Thinking...</span>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -254,18 +243,10 @@ interface StreamingStatusProps {
 export function StreamingStatus({ parts }: StreamingStatusProps) {
   const lastPart = parts[parts.length - 1];
 
-  // Check if reasoning is active (reasoning part with isStreaming=true)
-  const reasoningPart = parts.find(
-    (p): p is ReasoningPart => p.type === 'reasoning' && p.isStreaming === true
-  );
-
   // Determine status text based on active part
   let statusText = 'Thinking...';
 
-  if (reasoningPart) {
-    // Reasoning is streaming - show "Thinking" status
-    statusText = 'Thinking...';
-  } else if (lastPart?.type === 'tool_call') {
+  if (lastPart?.type === 'tool_call') {
     const info = getToolDisplayInfo(lastPart.toolId);
     statusText = info.activeLabel;
   } else if (lastPart?.type === 'text') {

@@ -64,8 +64,6 @@ function buildMessageHistory(
   userMessage: string,
   systemPrompt: string
 ): ChatMessage[] {
-  const usesDeepSeekReasoning = session.agentConfig.model.includes('deepseek');
-
   // System message
   const messages: ChatMessage[] = [
     {
@@ -94,46 +92,13 @@ function buildMessageHistory(
         .map((p) => p.content)
         .join('');
 
-      // Check if this assistant message had tool calls
-      const toolCallParts = msg.parts.filter(
-        (p): p is ToolCallPart => p.type === 'tool_call'
-      );
-
-      if (toolCallParts.length > 0) {
-        // Assistant message with tool calls - must preserve reasoning_details and thoughtSignature for Gemini
-        messages.push({
-          role: 'assistant',
-          content: textContent || null,
-          tool_calls: toolCallParts.map((part) => ({
-            id: part.callId,
-            type: 'function' as const,
-            function: {
-              name: part.toolId,
-              arguments: JSON.stringify(part.arguments),
-            },
-            thoughtSignature: part.thoughtSignature, // Preserve for Gemini
-          })),
-          reasoning_details: usesDeepSeekReasoning ? undefined : msg.metadata?.reasoningDetails,
-          reasoning_content: usesDeepSeekReasoning ? msg.metadata?.reasoningContent : undefined,
-        });
-      } else if (textContent) {
-        // Regular assistant message without tool calls
+      // Completed tool exchanges are collapsed to their user-visible answer.
+      // Replaying persisted tool calls without their original turn boundaries
+      // creates invalid chat-completions history for stricter providers.
+      if (textContent) {
         messages.push({
           role: 'assistant',
           content: textContent,
-          reasoning_details: usesDeepSeekReasoning ? undefined : msg.metadata?.reasoningDetails,
-          reasoning_content: usesDeepSeekReasoning ? msg.metadata?.reasoningContent : undefined,
-        });
-      }
-    }
-
-    // Include tool results
-    for (const part of msg.parts) {
-      if (part.type === 'tool_result') {
-        messages.push({
-          role: 'tool',
-          tool_call_id: part.callId,
-          content: JSON.stringify(part.result ?? { error: part.error }),
         });
       }
     }
@@ -243,12 +208,17 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
       let currentTextContent = '';
 
       // Stream the response
-      await sendMessageStream(
+      const turn = await sendMessageStream(
         messages,
         {
           onToken: (token) => {
             currentTextContent += token;
             options.onTokenReceived?.(token);
+
+            const reasoningPart = assistantMessage.parts.find(
+              (p): p is ReasoningPart => p.type === 'reasoning'
+            );
+            if (reasoningPart) reasoningPart.isStreaming = false;
 
             // Update or create text part
             const lastPart = assistantMessage.parts[assistantMessage.parts.length - 1];
@@ -283,14 +253,17 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
               assistantMessage.parts.unshift(reasoningPart);
             }
 
+            reasoningPart.isStreaming = true;
             // Add the new reasoning detail
             reasoningPart.details.push(detail);
             onMessageUpdate(assistantMessage);
           },
 
           onToolCallStart: () => {
-            // Reset text content when tool calls start
-            // The model may stream more text after tools complete
+            const reasoningPart = assistantMessage.parts.find(
+              (p): p is ReasoningPart => p.type === 'reasoning'
+            );
+            if (reasoningPart) reasoningPart.isStreaming = false;
           },
 
           onToolCalls: async (toolCalls) => {
@@ -412,6 +385,17 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
                 result = await toolRegistry.execute(name, args, ctx);
               }
 
+              // Validation and lookup failures return before the registry emits
+              // a status update. Ensure their cards terminate instead of
+              // remaining as an endless pending spinner.
+              if (!result.success && toolCallPart.status.status !== 'error') {
+                toolCallPart.status = {
+                  toolId: name,
+                  status: 'error',
+                  title: `${name} failed`,
+                };
+              }
+
               // Add tool result part
               const toolResultPart: ToolResultPart = {
                 type: 'tool_result',
@@ -451,12 +435,6 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
             }
 
             return toolResults;
-          },
-
-          onFollowUp: () => {
-            // Called before making follow-up request
-            followUpCount++;
-            currentTextContent = ''; // Reset for new content
           },
 
           onComplete: (metrics) => {
@@ -502,8 +480,31 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
         agentConfig.toolCallingOptions?.parallel_tool_calls
       );
 
-      // Tool call follow-ups are handled internally by sendMessageStream via recursion.
-      // After sendMessageStream completes, we're done with this turn.
+      if (turn.toolCalls.length > 0) {
+        messages.push(
+          {
+            role: 'assistant',
+            content: turn.content || null,
+            tool_calls: turn.toolCalls,
+            reasoning_details: turn.metrics.reasoningDetails,
+            reasoning_content: turn.metrics.reasoningContent,
+          },
+          ...turn.toolResults
+        );
+
+        followUpCount++;
+        if (followUpCount >= maxFollowUps) {
+          console.log(`[AgentLoop] Max follow-ups (${maxFollowUps}) reached`);
+          assistantMessage.parts.push({
+            type: 'text',
+            content: `\n\n(Reached maximum ${maxFollowUps} tool execution cycles)`,
+          });
+          break;
+        }
+
+        continue;
+      }
+
       // Validate formatting if template is selected (silent auto-correction)
       if (options.template && options.editor) {
         const validation = validateFormatting(options.editor, options.template);
@@ -522,18 +523,6 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
         }
       }
 
-      // Check if we've hit the limit (followUpCount is incremented by onFollowUp callback)
-      if (followUpCount >= maxFollowUps) {
-        console.log(`[AgentLoop] Max follow-ups (${maxFollowUps}) reached`);
-
-        // Add a note about hitting the limit
-        assistantMessage.parts.push({
-          type: 'text',
-          content: `\n\n(Reached maximum ${maxFollowUps} tool execution cycles)`,
-        });
-      }
-
-      // Exit the loop - all follow-ups are handled by sendMessageStream internally
       break;
     }
 

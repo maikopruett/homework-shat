@@ -30,8 +30,11 @@ TIPS:
 
 ERRORS: Returns error if search service is unavailable.`,
   parameters: z.object({
-    query: z.string().describe('The search query to find relevant information.'),
+    query: z.string().trim().min(1).describe('Specific search terms to find relevant information.'),
   }),
+  examples: [
+    { query: 'effects of climate change on coral reefs 2025' },
+  ],
 
   async execute({ query }, ctx) {
     ctx.emitStatus({

@@ -120,10 +120,16 @@ export interface StreamCallbacks {
   onToken: (token: string) => void;
   onReasoningToken?: (detail: ReasoningDetail) => void; // Called when reasoning tokens are received (for real-time streaming)
   onToolCalls?: (toolCalls: ToolCall[]) => Promise<ChatMessage[]>; // Returns tool results
-  onFollowUp?: () => void; // Called before making a follow-up call after tool execution - allows creating new message
   onToolCallStart?: () => void; // Called when first tool call is detected - signals end of text before tools
   onComplete: (metrics: StreamMetrics) => void | Promise<void>;
   onError: (error: Error) => void | Promise<void>;
+}
+
+export interface StreamTurnResult {
+  content: string;
+  toolCalls: ToolCall[];
+  toolResults: ChatMessage[];
+  metrics: StreamMetrics;
 }
 
 export interface SendMessageOptions {
@@ -201,7 +207,7 @@ export async function sendMessageStream(
   tools?: ToolDefinition[],
   tool_choice?: ToolChoice,
   parallel_tool_calls?: boolean
-): Promise<void> {
+): Promise<StreamTurnResult> {
   const isGemini = model.includes('gemini');
   console.log('[API] sendMessageStream called', { model, messageCount: messages.length, hasTools: !!tools, toolCount: tools?.length, tool_choice, isGemini });
   const startTime = performance.now();
@@ -437,61 +443,51 @@ export async function sendMessageStream(
       hasReasoningContent: accumulatedReasoningContent.length > 0,
     });
 
-    // Handle tool calls if present - check for various finish reasons
-    // Some models use 'tool_calls', others use 'tool_call' or 'function_call'
-    const isToolCallFinish = finishReason === 'tool_calls' || finishReason === 'tool_call' || finishReason === 'function_call';
-    if ((isToolCallFinish || accumulatedToolCalls.size > 0) && callbacks.onToolCalls && accumulatedToolCalls.size > 0) {
-      const toolCalls = Array.from(accumulatedToolCalls.values());
-      console.log('[API] Tool calls detected:', toolCalls.length, 'calls', toolCalls);
-      
-      // Execute tool calls and get results
-      const toolResults = await callbacks.onToolCalls(toolCalls);
-      
-      // Build new messages array with assistant's tool call message and tool results
-      const assistantMessage: ChatMessage = {
-        role: 'assistant',
-        content: accumulatedContent || null,
-        tool_calls: toolCalls,
-        reasoning_details: accumulatedReasoningDetails.length > 0 ? accumulatedReasoningDetails : undefined,
-        reasoning_content: accumulatedReasoningContent || undefined,
-      };
-      
-      const newMessages = [...messages, assistantMessage, ...toolResults];
-      
-      // Signal that we're about to make a follow-up call (allows creating new message)
-      if (callbacks.onFollowUp) {
-        callbacks.onFollowUp();
-      }
-      
-      // Make follow-up call with tool results
-      console.log('[API] Making follow-up call with tool results');
-      await sendMessageStream(
-        newMessages,
-        callbacks,
-        model,
-        abortSignal,
-        tools,
-        tool_choice,
-        parallel_tool_calls
-      );
-      return; // The recursive call will handle completion
-    }
-
-    console.log('[API] Stream complete, calling onComplete', { tokenCount, totalTime: Math.round(totalTime) });
-    await Promise.resolve(callbacks.onComplete({
+    const metrics: StreamMetrics = {
       ttft: Math.round(ttft),
       tps: Math.round(tps * 10) / 10,
       totalTokens: tokenCount,
       totalTime: Math.round(totalTime),
       reasoningDetails: accumulatedReasoningDetails.length > 0 ? accumulatedReasoningDetails : undefined,
       reasoningContent: accumulatedReasoningContent || undefined,
-    }));
+    };
+
+    // Execute this turn's tool calls, but leave follow-up orchestration to the
+    // agent loop so it can enforce limits and preserve each turn's history.
+    const isToolCallFinish = finishReason === 'tool_calls' || finishReason === 'tool_call' || finishReason === 'function_call';
+    let toolCalls: ToolCall[] = [];
+    let toolResults: ChatMessage[] = [];
+    if ((isToolCallFinish || accumulatedToolCalls.size > 0) && callbacks.onToolCalls && accumulatedToolCalls.size > 0) {
+      toolCalls = Array.from(accumulatedToolCalls.values())
+        .filter((toolCall) => toolCall.function.name.trim().length > 0)
+        .map((toolCall) => ({
+          ...toolCall,
+          id: toolCall.id || `call_${crypto.randomUUID()}`,
+          function: {
+            ...toolCall.function,
+            arguments: toolCall.function.arguments || '{}',
+          },
+        }));
+      console.log('[API] Tool calls detected:', toolCalls.length, 'calls', toolCalls);
+      toolResults = await callbacks.onToolCalls(toolCalls);
+    }
+
+    console.log('[API] Stream complete, calling onComplete', { tokenCount, totalTime: Math.round(totalTime) });
+    await Promise.resolve(callbacks.onComplete(metrics));
     console.log('[API] onComplete finished');
+
+    return {
+      content: accumulatedContent,
+      toolCalls,
+      toolResults,
+      metrics,
+    };
   } catch (err) {
     const error = err instanceof Error ? err : new Error('Unknown error');
     console.log('[API] Error caught, calling onError', { name: error.name, message: error.message });
     await Promise.resolve(callbacks.onError(error));
     console.log('[API] onError finished');
+    throw error;
   }
 }
 
