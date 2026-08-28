@@ -1,5 +1,6 @@
 interface WorkerEnv extends Env {
   EXA_API_KEY: string;
+  OPENROUTER_API_KEY: string;
 }
 
 const DEFAULT_WORKERS_AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
@@ -7,6 +8,9 @@ const SUPPORTED_WORKERS_AI_MODELS = new Set([
   DEFAULT_WORKERS_AI_MODEL,
   '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
   '@cf/mistralai/mistral-small-3.1-24b-instruct',
+]);
+const SUPPORTED_OPENROUTER_MODELS = new Set([
+  'z-ai/glm-5.3-flash',
 ]);
 
 interface WorkersAiChatRequest extends Record<string, unknown> {
@@ -70,21 +74,34 @@ async function handleChat(request: Request, env: WorkerEnv): Promise<Response> {
     const body = await request.json<WorkersAiChatRequest>();
     const requestedModel = typeof body.model === 'string' ? body.model : DEFAULT_WORKERS_AI_MODEL;
 
-    if (!SUPPORTED_WORKERS_AI_MODELS.has(requestedModel)) {
-      return Response.json({ error: 'Unsupported Workers AI model' }, { status: 400 });
+    if (!SUPPORTED_WORKERS_AI_MODELS.has(requestedModel) && !SUPPORTED_OPENROUTER_MODELS.has(requestedModel)) {
+      return Response.json({ error: 'Unsupported model' }, { status: 400 });
     }
 
     if (!Array.isArray(body.messages) || body.messages.length === 0) {
       return Response.json({ error: 'Messages are required' }, { status: 400 });
     }
 
-    const inputs = { ...body };
-    delete inputs.model;
-    const model: string = requestedModel;
-    const response = await env.AI.run(model, inputs, {
-      returnRawResponse: true,
-      signal: request.signal,
-    });
+    let response: Response;
+
+    if (SUPPORTED_OPENROUTER_MODELS.has(requestedModel)) {
+      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ...body, model: requestedModel }),
+        signal: request.signal,
+      });
+    } else {
+      const inputs = { ...body };
+      delete inputs.model;
+      response = await env.AI.run(requestedModel, inputs, {
+        returnRawResponse: true,
+        signal: request.signal,
+      });
+    }
 
     const headers = new Headers(response.headers);
     headers.set('Cache-Control', 'no-store');
@@ -92,7 +109,7 @@ async function handleChat(request: Request, env: WorkerEnv): Promise<Response> {
     return new Response(response.body, { status: response.status, headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error(JSON.stringify({ message: 'Workers AI chat failed', error: message }));
+    console.error(JSON.stringify({ message: 'AI chat failed', error: message }));
     return Response.json({ error: message }, { status: 500 });
   }
 }

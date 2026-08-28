@@ -13,6 +13,7 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
   { id: '@cf/google/gemma-4-26b-a4b-it', name: 'Gemma 4 26B', provider: 'Cloudflare', isDefault: true, isBest: true },
   { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', name: 'Mistral Small 3.1', provider: 'Cloudflare', isFastest: true },
   { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B', provider: 'Cloudflare' },
+  { id: 'z-ai/glm-5.3-flash', name: 'GLM 5.3 Flash', provider: 'OpenRouter' },
 ];
 
 export const DEFAULT_MODEL = AVAILABLE_MODELS.find(m => m.isDefault)?.id || AVAILABLE_MODELS[0].id;

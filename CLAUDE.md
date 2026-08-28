@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a React-based homework assistance application with an AI-powered document editor. It uses Workers AI for LLM access, Exa for web search, TipTap for rich text editing, and Cloudflare Workers for API routing.
+This is a React-based homework assistance application with an AI-powered document editor. It uses Workers AI and OpenRouter for LLM access, Exa for web search, TipTap for rich text editing, and Cloudflare Workers for API routing.
 
 ## Development Commands
 
@@ -46,7 +46,7 @@ Available <tech>: tailwindcss, react, opencode, effect, tiptap
 ### Environment Setup
 - Copy `.dev.vars.example` to `.dev.vars` for local Worker secrets
 - Set `EXA_API_KEY` secret for search functionality
-- Workers AI is provided through the native `AI` binding and requires no LLM API key
+- Workers AI is provided through the native `AI` binding; OpenRouter models use the `OPENROUTER_API_KEY` Worker secret
 
 ## Architecture Overview
 
@@ -72,9 +72,9 @@ Available <tech>: tailwindcss, react, opencode, effect, tiptap
 
 **Worker (`worker/index.ts`):**
 - Serves static assets from `dist/` directory
-- Runs `/api/chat` through the native Workers AI binding (streaming chat completions)
+- Routes `/api/chat` to the native Workers AI binding or OpenRouter based on the selected model
 - Proxies `/api/search` → Exa API (web search)
-- Uses `EXA_API_KEY` for search; Workers AI requires no API-key secret
+- Uses `EXA_API_KEY` for search and `OPENROUTER_API_KEY` for OpenRouter models
 
 **Convex (Optional/Legacy):**
 - `convex/` directory contains Convex backend setup (messages schema and chat queries)
@@ -163,7 +163,7 @@ When implementing tool handlers:
 - Imperative API via ref: `insertContent()`, `clearContent()`, `getHTML()`, `getText()`
 
 ### Model Selection
-- Models covered by the Workers AI free allocation are defined in the `AVAILABLE_MODELS` array in `workersAi.ts`
+- Workers AI and OpenRouter models are defined in the `AVAILABLE_MODELS` array in `workersAi.ts`
 - Default: `@cf/google/gemma-4-26b-a4b-it`
 - Persisted to localStorage with key `homework-workers-ai-selected-model`
 
