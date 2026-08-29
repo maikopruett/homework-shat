@@ -614,6 +614,13 @@ function generateTemplateInstructions(htmlContent: string): string {
 
 export type ChatMode = 'edit' | 'plan' | 'build';
 
+function isNewEssayRequest(content: string): boolean {
+  const normalized = content.toLowerCase();
+  const asksToWrite = /\b(write|create|compose|draft|generate)\b/.test(normalized);
+  const essayArtifact = /\b(essay|research paper|term paper|academic paper)\b/.test(normalized);
+  return asksToWrite && essayArtifact;
+}
+
 export function useDocuments() {
   const [documents, setDocuments] = useState<Document[]>(() => {
     const docs = loadDocuments();
@@ -901,6 +908,13 @@ export function useDocuments() {
 
     const shouldGenerateTitle = activeDocument.title === 'Untitled document' && activeDocument.chatMessages.length === 0;
     const originalUserMessage = content.trim();
+    // A direct essay request in the default Edit tab should still use the
+    // durable essay workflow and write the document, without requiring the
+    // user to discover Plan + Build first.
+    const directEssayRequest = mode === 'edit' && isNewEssayRequest(originalUserMessage);
+    const effectiveMode: ChatMode = directEssayRequest
+      ? 'build'
+      : mode;
 
     editorRefStore.current = editorRef.current;
 
@@ -950,12 +964,12 @@ export function useDocuments() {
     // Build model-specific system prompt using new prompts system
     const promptContext: PromptContext = {
       modelId: selectedModel,
-      mode,
+      mode: effectiveMode,
       persona: personaSettings as PromptPersonaSettings | null,
       documentTitle: activeDocument.title,
       // Essay modes rely on durable state and section reads instead of
       // replaying the full document into every model turn.
-      documentContent: mode === 'edit' || persistedEssay.outline.length === 0
+      documentContent: effectiveMode === 'edit' || persistedEssay.outline.length === 0
         ? (documentContext || '(empty document)')
         : undefined,
       documentStyling: stylingContext || undefined,
@@ -989,7 +1003,7 @@ export function useDocuments() {
     ));
 
     // Create agent config based on mode (edit or plan)
-    const presetKey = getPresetForMode(mode);
+    const presetKey = getPresetForMode(effectiveMode);
 
     const agentConfig = createAgentConfig(presetKey, {
       model: selectedModel,
@@ -1004,8 +1018,8 @@ export function useDocuments() {
       .find((message) => message.metadata?.steps)?.metadata?.steps ?? [];
 
     // Create session for the agent with conversation history
-    let essay = persistedEssay;
-    if (mode === 'plan' && essay.phase === 'complete') essay = createDefaultEssaySpec();
+    let essay = directEssayRequest ? createDefaultEssaySpec() : persistedEssay;
+    if (effectiveMode === 'plan' && essay.phase === 'complete') essay = createDefaultEssaySpec();
     if (preSearchResults?.length) {
       mergeSources(essay, preSearchResults.map((result) => ({
         title: result.title,
@@ -1204,7 +1218,7 @@ export function useDocuments() {
 
 ${planContent}
 
-Execute this plan now. Create a todo list from the sections, clear the document, and write the full essay.`;
+Reconcile any edits in this plan with the durable essay outline, then research, draft each section, verify, format, and complete the essay.`;
 
     // Send as 'build' mode which uses the builder agent preset
     sendMessage(buildMessage, editorRef, 'build');

@@ -205,6 +205,13 @@ function shouldContinueEssayWorkflow(session: Session): boolean {
   return true;
 }
 
+function essayWorkflowRequiresTool(session: Session): boolean {
+  if (session.agentConfig.mode === 'plan') {
+    return session.essay.phase !== 'outline' || session.essay.outline.length === 0;
+  }
+  return session.agentConfig.mode === 'build' && session.essay.phase !== 'complete';
+}
+
 // ==================== Main Loop ====================
 
 /**
@@ -366,7 +373,19 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
               const name = toolRegistry.resolveId(toolCall.function.name);
               toolCall.function.name = name;
               const parsedArgs = parseToolArguments(toolCall.function.arguments);
-              const args = toolRegistry.repairArguments(name, parsedArgs);
+              let args = toolRegistry.repairArguments(name, parsedArgs);
+              if (name === 'search_web') {
+                const record = args && typeof args === 'object' && !Array.isArray(args)
+                  ? args as Record<string, unknown>
+                  : {};
+                const query = typeof record.query === 'string' ? record.query.trim() : '';
+                const malformedWrapper = /^\w*Input\{\}$/i.test(query);
+                if (!query || malformedWrapper) {
+                  args = {
+                    query: (session.essay.topic.trim() || userMessage.trim()).slice(0, 500),
+                  };
+                }
+              }
               const signature = `${name}:${stableStringify(args)}`;
               if (signature === previousCallSignature) consecutiveIdenticalCalls += 1;
               else {
@@ -588,8 +607,12 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
         abortSignal,
         // Pass tool definitions if available
         chatCompletionTools.length > 0 ? (chatCompletionTools as import('../api/workersAi').ToolDefinition[]) : undefined,
-        // Pass tool choice from agent config, default to 'auto'
-        chatCompletionTools.length > 0 ? (agentConfig.toolCallingOptions?.tool_choice ?? 'auto') : undefined,
+        // An incomplete essay phase must produce an action, not a promise to act.
+        chatCompletionTools.length > 0
+          ? (isEssayWorkflow && essayWorkflowRequiresTool(session)
+              ? 'required'
+              : (agentConfig.toolCallingOptions?.tool_choice ?? 'auto'))
+          : undefined,
         // Pass parallel tool calls option from agent config
         agentConfig.toolCallingOptions?.parallel_tool_calls
       );

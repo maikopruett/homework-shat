@@ -82,7 +82,7 @@ Advance only as far as the outline phase. Do NOT draft essay prose in this mode.
 
 export const BUILD_MODE_INSTRUCTIONS = `## Build Mode - Execute the Plan
 
-The user has approved their essay plan. Now write the full essay.
+Write the full essay. If there is an approved plan, follow it. If the request was sent directly from Edit mode, infer sensible defaults from the request and create the requirements and outline before drafting.
 
 ### Execution Steps:
 1. Inspect the durable essay state, read the visible plan, and reconcile any edits the user made into the canonical outline.
