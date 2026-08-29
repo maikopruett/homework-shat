@@ -40,6 +40,7 @@ EXAMPLE:
 
 ERRORS: Returns error if options array has fewer than 2 items or if options are missing required fields.`,
   parameters: UserQuestionSchema,
+  execution: 'state-write',
   requiredContext: ['session'],
 
   async execute(params, ctx) {

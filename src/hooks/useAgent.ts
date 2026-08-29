@@ -18,6 +18,7 @@ import type {
 } from '../agent/types';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
 import { DEFAULT_MODEL } from '../api/workersAi';
+import { createDefaultEssaySpec } from '../agent/essay';
 
 // ==================== Types ====================
 
@@ -73,6 +74,8 @@ function createNewSession(mode: 'edit' | 'plan', model: string, documentId?: str
     agentConfig: config,
     messages: [],
     todos: [],
+    essay: createDefaultEssaySpec(),
+    steps: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
     status: 'active',

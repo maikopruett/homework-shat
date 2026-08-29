@@ -10,11 +10,13 @@
 import type { AgentConfig, AgentMode, AgentPermissions, ToolPermissions } from './types';
 import { DEFAULT_MODEL } from '../api/workersAi';
 
+const ESSAY_TOOLS = ['inspect_essay', 'update_essay_spec', 'set_essay_phase', 'read_section', 'write_section', 'verify_essay'];
+
 // ==================== Preset Configurations ====================
 
 const EDITOR_TOOLS: ToolPermissions = {
   enabled: [], // Empty = all tools enabled
-  disabled: ['todowrite', 'todoread', 'ask_user'], // No planning in edit mode - direct execution
+  disabled: ['todowrite', 'todoread', 'ask_user', ...ESSAY_TOOLS], // No planning in edit mode - direct execution
   askFirst: ['clear_document'], // Confirm destructive actions
 };
 
@@ -33,6 +35,7 @@ const ESSAY_PLANNER_TOOLS: ToolPermissions = {
     'todowrite',
     'todoread',
     'ask_user',
+    ...ESSAY_TOOLS,
     'write_content',
     'edit_text',
     'insert_content',
@@ -55,6 +58,7 @@ const BUILDER_TOOLS: ToolPermissions = {
     'insert_content',
     'format_text',
     'indent_body_paragraphs',
+    ...ESSAY_TOOLS,
   ],
   disabled: ['ask_user'],  // No questions during build - plan is approved
   askFirst: [],

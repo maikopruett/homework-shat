@@ -29,6 +29,7 @@ ERRORS: Returns error if the exact text is not found in the document.`,
     replace_with: z.string().describe('The new text to replace the found text with.'),
   }),
   requiredContext: ['editor'],
+  execution: 'document-write',
   examples: [
     { find_text: 'old header text', replace_with: 'New Header Text' },
     { find_text: 'Mrs. Johson', replace_with: 'Mrs. Johnson' },

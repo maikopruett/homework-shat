@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ToolSpec, ToolContext, ToolResult, PermissionLevel } from '../agent/types';
+import type { ToolSpec, ToolContext, ToolResult, PermissionLevel, ToolExecutionKind, EssayPhase } from '../agent/types';
 
 /**
  * Helper for defining tools with Zod schema validation.
@@ -34,6 +34,8 @@ export class Tool {
     examples?: Record<string, unknown>[];
     /** Custom validation error formatter - provides AI-friendly error messages */
     formatValidationError?: (error: z.ZodError) => string;
+    execution?: ToolExecutionKind;
+    phases?: EssayPhase[];
   }): ToolSpec<TParams, TResult> {
     return {
       id: spec.id,
@@ -45,6 +47,8 @@ export class Tool {
       requiredContext: spec.requiredContext ?? [],
       examples: spec.examples,
       formatValidationError: spec.formatValidationError,
+      execution: spec.execution ?? 'read',
+      phases: spec.phases,
     };
   }
 }

@@ -51,6 +51,35 @@ export class ToolRegistry {
     return this.tools.get(id);
   }
 
+  resolveId(id: string): string {
+    if (this.tools.has(id)) return id;
+    const normalized = id.trim().toLowerCase().replace(/[\s-]+/g, '_');
+    return this.tools.has(normalized) ? normalized : id;
+  }
+
+  repairArguments(toolId: string, args: unknown): unknown {
+    const tool = this.get(this.resolveId(toolId));
+    if (!tool) return args;
+    const schema = this.zodToJsonSchema(tool);
+    if (schema.required.length !== 1) return args;
+    const field = schema.required[0];
+    if (typeof args !== 'object' || args === null || Array.isArray(args)) {
+      return { [field]: args };
+    }
+    const record = args as Record<string, unknown>;
+    if (!(field in record) && Object.keys(record).length === 1 && 'value' in record) {
+      return { [field]: record.value };
+    }
+    return args;
+  }
+
+  canRunInParallel(toolIds: string[]): boolean {
+    return toolIds.every((id) => {
+      const execution = this.get(this.resolveId(id))?.execution ?? 'read';
+      return execution === 'read' || execution === 'research';
+    });
+  }
+
   /**
    * Get all registered tools
    */

@@ -21,10 +21,12 @@ import type {
   UserQuestionResponse,
   UserQuestionParams,
   ReasoningDetail,
+  AgentStepRecord,
 } from './types';
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
 import type { ChatMessage, ToolCall } from '../api/workersAi';
 import { validateFormatting, modelSupportsTools, type EssayTemplate } from '../prompts';
+import { compactChatMessages, documentRevision, ESSAY_PHASE_TOOLS, essayPhasePrompt, touchEssaySpec } from './essay';
 
 // ==================== Types ====================
 
@@ -155,6 +157,54 @@ function createToolContext(
   };
 }
 
+function parseToolArguments(value: string): unknown {
+  try {
+    const parsed = JSON.parse(value || '{}');
+    if (typeof parsed === 'string') {
+      try {
+        return JSON.parse(parsed);
+      } catch {
+        return parsed;
+      }
+    }
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function truncateToolResult(value: unknown, limit = 16_000): string {
+  const serialized = JSON.stringify(value);
+  if (serialized.length <= limit) return serialized;
+  return `${serialized.slice(0, limit)}\n...[tool output truncated by harness]`;
+}
+
+function shouldContinueEssayWorkflow(session: Session): boolean {
+  if (session.agentConfig.mode === 'plan') {
+    return session.essay.phase !== 'outline' || session.essay.outline.length === 0;
+  }
+  if (session.agentConfig.mode !== 'build' || session.essay.phase === 'complete') return false;
+  if (session.essay.phase === 'draft' && session.essay.outline.every((section) => section.status === 'complete')) {
+    session.essay.phase = 'verify';
+    touchEssaySpec(session.essay);
+  } else if (session.essay.phase === 'verify' && session.essay.lastVerification?.passed) {
+    session.essay.phase = 'format';
+    touchEssaySpec(session.essay);
+  }
+  return true;
+}
+
 // ==================== Main Loop ====================
 
 /**
@@ -171,11 +221,9 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
   const { session, userMessage, systemPrompt, onStatusUpdate, onMessageUpdate, abortSignal } =
     options;
   const { agentConfig } = session;
+  const isEssayWorkflow = agentConfig.mode === 'plan' || agentConfig.mode === 'build';
 
-  // Get available tools for this agent (skip for models with broken tool calling)
   const supportsTools = modelSupportsTools(agentConfig.model);
-  const availableTools = supportsTools ? toolRegistry.getForAgent(agentConfig) : [];
-  const chatCompletionTools = supportsTools ? toolRegistry.toChatCompletionsFormat(availableTools) : [];
 
   // Build initial message history
   const messages = buildMessageHistory(session, userMessage, systemPrompt);
@@ -183,6 +231,10 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
   let followUpCount = 0;
   let totalToolCalls = 0;
   const maxFollowUps = agentConfig.permissions.maxFollowUps;
+  let previousCallSignature = '';
+  let consecutiveIdenticalCalls = 0;
+  const validationFailures = new Map<string, number>();
+  const disabledTools = new Set<string>();
 
   // Create the assistant message that will accumulate parts
   const assistantMessage: Message = {
@@ -205,11 +257,50 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
         };
       }
 
+      session.essay.documentRevision = documentRevision(options.editor);
+      messages[0] = {
+        role: 'system',
+        content: isEssayWorkflow
+          ? `${buildFullSystemPrompt(systemPrompt, session)}\n\n${essayPhasePrompt(session.essay)}`
+          : buildFullSystemPrompt(systemPrompt, session),
+      };
+
+      const phaseTools = new Set(ESSAY_PHASE_TOOLS[session.essay.phase]);
+      const availableTools = supportsTools
+        ? toolRegistry.getForAgent(agentConfig).filter((tool) =>
+            !disabledTools.has(tool.id) && (agentConfig.mode === 'edit' || phaseTools.has(tool.id)))
+        : [];
+      const chatCompletionTools = toolRegistry.toChatCompletionsFormat(availableTools);
+      const requestMessages = compactChatMessages(messages, JSON.stringify({
+        essayPhase: session.essay.phase,
+        essayRevision: session.essay.revision,
+        documentRevision: session.essay.documentRevision,
+      }));
+
+      const step: AgentStepRecord = {
+        id: crypto.randomUUID(),
+        index: session.steps.length + 1,
+        phase: session.essay.phase,
+        status: 'running',
+        toolNames: [],
+        startedAt: Date.now(),
+      };
+      session.steps.push(step);
+      assistantMessage.metadata = {
+        ...assistantMessage.metadata,
+        ...(isEssayWorkflow ? {
+          essayPhase: session.essay.phase,
+          essayRevision: session.essay.revision,
+          steps: [...session.steps],
+        } : {}),
+      };
+      onMessageUpdate(assistantMessage);
+
       let currentTextContent = '';
 
       // Stream the response
       const turn = await sendMessageStream(
-        messages,
+        requestMessages,
         {
           onToken: (token) => {
             currentTextContent += token;
@@ -268,17 +359,21 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
 
           onToolCalls: async (toolCalls) => {
             totalToolCalls += toolCalls.length;
+            step.toolNames = toolCalls.map((call) => toolRegistry.resolveId(call.function.name));
 
             // Helper function to execute a single tool call
             const executeToolCall = async (toolCall: ToolCall): Promise<ChatMessage> => {
-              const { name, arguments: argsJson } = toolCall.function;
-              let args: unknown;
-
-              try {
-                args = JSON.parse(argsJson);
-              } catch {
-                args = {};
+              const name = toolRegistry.resolveId(toolCall.function.name);
+              toolCall.function.name = name;
+              const parsedArgs = parseToolArguments(toolCall.function.arguments);
+              const args = toolRegistry.repairArguments(name, parsedArgs);
+              const signature = `${name}:${stableStringify(args)}`;
+              if (signature === previousCallSignature) consecutiveIdenticalCalls += 1;
+              else {
+                previousCallSignature = signature;
+                consecutiveIdenticalCalls = 1;
               }
+              const repetitionCount = consecutiveIdenticalCalls;
 
               // Add tool call part
               const toolCallPart: ToolCallPart = {
@@ -305,7 +400,12 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
 
               // Special handling for ask_user tool - pause and wait for user response
               let result;
-              if (name === 'ask_user' && options.onUserQuestionRequest) {
+              if (repetitionCount >= 3) {
+                result = {
+                  success: false,
+                  error: `Blocked repeated identical tool call after ${repetitionCount} attempts. Change the arguments or choose another tool.`,
+                };
+              } else if (name === 'ask_user' && options.onUserQuestionRequest) {
                 const questionParams = args as UserQuestionParams;
 
                 // Validate that options exist and are properly formed
@@ -385,6 +485,14 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
                 result = await toolRegistry.execute(name, args, ctx);
               }
 
+              if (!result.success && /invalid|requires|required|unknown tool/i.test(result.error ?? '')) {
+                const failures = (validationFailures.get(name) ?? 0) + 1;
+                validationFailures.set(name, failures);
+                if (failures >= 2) disabledTools.add(name);
+              } else if (result.success) {
+                validationFailures.delete(name);
+              }
+
               // Validation and lookup failures return before the registry emits
               // a status update. Ensure their cards terminate instead of
               // remaining as an endless pending spinner.
@@ -409,17 +517,18 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
 
               // Return the message for follow-up
               const resultContent = result.success
-                ? { success: true, ...(result.data as object) }
+                ? { success: true, data: result.data }
                 : { success: false, error: result.error };
               return {
                 role: 'tool' as const,
                 tool_call_id: toolCall.id,
-                content: JSON.stringify(resultContent),
+                content: truncateToolResult(resultContent),
               };
             };
 
-            // Execute tools - parallel by default unless disabled via config
-            const shouldRunParallel = agentConfig.toolCallingOptions?.parallel_tool_calls !== false;
+            // Only side-effect-free reads and searches may run concurrently.
+            const shouldRunParallel = agentConfig.toolCallingOptions?.parallel_tool_calls !== false
+              && toolRegistry.canRunInParallel(toolCalls.map((call) => toolRegistry.resolveId(call.function.name)));
 
             let toolResults: ChatMessage[];
             if (shouldRunParallel && toolCalls.length > 1) {
@@ -462,6 +571,11 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
               tokenCount: metrics?.totalTokens,
               reasoningDetails, // For reasoning models - preserved for follow-up calls
               reasoningContent,
+              ...(isEssayWorkflow ? {
+                essayPhase: session.essay.phase,
+                essayRevision: session.essay.revision,
+                steps: [...session.steps],
+              } : {}),
             };
             onMessageUpdate(assistantMessage);
           },
@@ -479,6 +593,18 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
         // Pass parallel tool calls option from agent config
         agentConfig.toolCallingOptions?.parallel_tool_calls
       );
+
+      step.status = 'completed';
+      step.completedAt = Date.now();
+      assistantMessage.metadata = {
+        ...assistantMessage.metadata,
+        ...(isEssayWorkflow ? {
+          essayPhase: session.essay.phase,
+          essayRevision: session.essay.revision,
+          steps: [...session.steps],
+        } : {}),
+      };
+      onMessageUpdate(assistantMessage);
 
       if (turn.toolCalls.length > 0) {
         messages.push(
@@ -502,6 +628,18 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
           break;
         }
 
+        continue;
+      }
+
+      if (supportsTools && shouldContinueEssayWorkflow(session)) {
+        messages.push({
+          role: 'assistant',
+          content: turn.content || null,
+        }, {
+          role: 'user',
+          content: `Continue the essay workflow from phase "${session.essay.phase}". Use the available phase tools and do not stop until this phase's objective is complete.`,
+        });
+        followUpCount++;
         continue;
       }
 
@@ -535,6 +673,13 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('[AgentLoop] Error:', error);
+
+    const runningStep = [...session.steps].reverse().find((step) => step.status === 'running');
+    if (runningStep) {
+      runningStep.status = 'error';
+      runningStep.error = errorMessage;
+      runningStep.completedAt = Date.now();
+    }
 
     // Add error to message
     assistantMessage.parts.push({

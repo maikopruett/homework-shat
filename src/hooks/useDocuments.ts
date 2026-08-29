@@ -6,7 +6,8 @@ import { searchExa, type SearchResult } from '../api/exa';
 // Agent system imports
 import { runAgentLoop } from '../agent/Loop';
 import { createAgentConfig, getPresetForMode } from '../agent/Agent';
-import type { ToolStatus, Todo, UserQuestionRequest, UserQuestionResponse, MessagePart, TextPart, MessageMetadata, Message } from '../agent/types';
+import type { ToolStatus, Todo, UserQuestionRequest, UserQuestionResponse, MessagePart, TextPart, MessageMetadata, Message, EssaySpec } from '../agent/types';
+import { createDefaultEssaySpec, documentRevision, mergeSources, normalizeEssaySpec } from '../agent/essay';
 // Plan detection removed - mode is now explicitly controlled via toggle
 
 // Model-specific prompts system
@@ -93,6 +94,7 @@ export interface Document {
   title: string;
   content: string; // HTML content of the editor
   chatMessages: DocChatMessage[];
+  essaySpec: EssaySpec;
   createdAt: number;
   updatedAt: number;
 }
@@ -127,6 +129,7 @@ function loadDocuments(): Document[] {
     // Migrate legacy message format to parts-based format
     return docs.map(doc => ({
       ...doc,
+      essaySpec: normalizeEssaySpec(doc.essaySpec),
       chatMessages: doc.chatMessages.map(msg => migrateDocChatMessage(msg as LegacyDocChatMessage)),
     }));
   } catch {
@@ -192,6 +195,7 @@ function createNewDocument(title: string = 'Untitled document'): Document {
     title,
     content: '',
     chatMessages: [],
+    essaySpec: createDefaultEssaySpec(),
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -941,13 +945,19 @@ export function useDocuments() {
       stylingContext = formatStylingForAI(stylingInfo);
     }
 
+    const persistedEssay = normalizeEssaySpec(activeDocument.essaySpec);
+
     // Build model-specific system prompt using new prompts system
     const promptContext: PromptContext = {
       modelId: selectedModel,
       mode,
       persona: personaSettings as PromptPersonaSettings | null,
       documentTitle: activeDocument.title,
-      documentContent: documentContext || '(empty document)',
+      // Essay modes rely on durable state and section reads instead of
+      // replaying the full document into every model turn.
+      documentContent: mode === 'edit' || persistedEssay.outline.length === 0
+        ? (documentContext || '(empty document)')
+        : undefined,
       documentStyling: stylingContext || undefined,
       searchResults: preSearchResults?.map(r => ({
         title: r.title,
@@ -989,13 +999,33 @@ export function useDocuments() {
     // Convert previous chat messages to agent Message format
     // This preserves reasoning_details from previous turns for models like Gemini
     const previousMessages = activeDocument.chatMessages.map(docChatMessageToAgentMessage);
+    const previousSteps = [...previousMessages]
+      .reverse()
+      .find((message) => message.metadata?.steps)?.metadata?.steps ?? [];
 
     // Create session for the agent with conversation history
+    let essay = persistedEssay;
+    if (mode === 'plan' && essay.phase === 'complete') essay = createDefaultEssaySpec();
+    if (preSearchResults?.length) {
+      mergeSources(essay, preSearchResults.map((result) => ({
+        title: result.title,
+        url: result.url,
+        snippet: result.snippet,
+        author: result.author,
+        publishedDate: result.publishedDate,
+        accessedAt: new Date().toISOString(),
+        claims: [],
+      })));
+    }
+    essay.documentRevision = documentRevision(editorRef.current ?? null);
+
     const agentSession = {
       id: crypto.randomUUID(),
       agentConfig,
       messages: previousMessages,
       todos: [] as import('../agent/types').Todo[],
+      essay,
+      steps: [...previousSteps],
       status: 'active' as const,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1026,9 +1056,10 @@ export function useDocuments() {
                   ...doc,
                   chatMessages: doc.chatMessages.map(m =>
                     m.id === assistantMessageId
-                      ? { ...m, parts: [...message.parts], isStreaming: true }
+                      ? { ...m, parts: [...message.parts], metadata: message.metadata, isStreaming: true }
                       : m
                   ),
+                  essaySpec: normalizeEssaySpec(agentSession.essay),
                   updatedAt: Date.now()
                 }
               : doc
@@ -1062,7 +1093,7 @@ export function useDocuments() {
         documentTextContent = editorRefStore.current.getText();
         setDocuments(prev => prev.map(doc =>
           doc.id === activeDocId
-            ? { ...doc, content: finalContent, updatedAt: Date.now() }
+            ? { ...doc, content: finalContent, essaySpec: normalizeEssaySpec(agentSession.essay), updatedAt: Date.now() }
             : doc
         ));
       }
@@ -1078,6 +1109,7 @@ export function useDocuments() {
                   ? { ...m, parts: [...result.message.parts], metadata: result.message.metadata, isStreaming: false }
                   : m
               ),
+              essaySpec: normalizeEssaySpec(agentSession.essay),
               updatedAt: Date.now()
             }
           : doc

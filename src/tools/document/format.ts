@@ -77,6 +77,7 @@ ERRORS: Fails if target text not found or if required value is missing.`,
       ),
   }),
   requiredContext: ['editor'],
+  execution: 'document-write',
   examples: [
     { format_type: 'bold', target: 'Important text' },
     { format_type: 'align', target: 'all', value: 'center' },
@@ -169,6 +170,7 @@ BEHAVIOR:
       ),
   }),
   requiredContext: ['editor'],
+  execution: 'document-write',
   examples: [
     { indent_value: '0.5in', skip_lines: 5 },  // MLA format
     { indent_value: '0.5in', skip_lines: 7 },  // APA format

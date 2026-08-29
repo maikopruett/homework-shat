@@ -29,7 +29,7 @@ interface PartRendererProps {
 /**
  * Renders all parts of an assistant message.
  */
-export function MessagePartsRenderer({ parts }: MessagePartsProps) {
+export function MessagePartsRenderer({ parts, metadata }: MessagePartsProps) {
   // Build a map of tool results by callId for pairing with tool calls
   const resultsByCallId = new Map<string, ToolResultPart>();
   for (const part of parts) {
@@ -47,9 +47,29 @@ export function MessagePartsRenderer({ parts }: MessagePartsProps) {
 
   return (
     <div className="flex flex-col gap-2">
+      {metadata?.essayPhase && (
+        <EssayProgress metadata={metadata} />
+      )}
       {renderableParts.map((part, index) => (
         <PartRenderer key={index} part={part} resultsByCallId={resultsByCallId} />
       ))}
+    </div>
+  );
+}
+
+function EssayProgress({ metadata }: { metadata: MessageMetadata }) {
+  const steps = metadata.steps ?? [];
+  const latest = steps[steps.length - 1];
+  const completed = steps.filter((step) => step.status === 'completed').length;
+  const phase = metadata.essayPhase ?? latest?.phase;
+  if (!phase) return null;
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-100 bg-blue-50/70 text-xs text-blue-800">
+      <span className="font-medium capitalize">{phase}</span>
+      {steps.length > 0 && <span className="text-blue-600">{completed}/{steps.length} steps</span>}
+      {latest?.status === 'running' && <span className="text-blue-600">running</span>}
+      {latest?.status === 'error' && <X className="w-3.5 h-3.5" />}
     </div>
   );
 }

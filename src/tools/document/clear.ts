@@ -20,6 +20,7 @@ WARNING: This action cannot be undone. All text, formatting, and content will be
 AVOID: Do not use this before writing new content to an empty document - just use write_content directly.`,
   parameters: z.object({}),
   requiredContext: ['editor'],
+  execution: 'document-write',
   permissions: 'ask', // Destructive action, should confirm
 
   async execute(_params, ctx) {

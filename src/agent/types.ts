@@ -4,6 +4,7 @@ import type { TiptapEditorHandle } from '../components/TiptapEditor';
 // ==================== Tool Types ====================
 
 export type PermissionLevel = 'allow' | 'ask' | 'deny';
+export type ToolExecutionKind = 'read' | 'research' | 'document-write' | 'state-write';
 
 export interface ToolSpec<TParams = unknown, TResult = unknown> {
   id: string;
@@ -17,6 +18,8 @@ export interface ToolSpec<TParams = unknown, TResult = unknown> {
   examples?: Record<string, unknown>[];
   /** Custom validation error formatter - provides AI-friendly error messages */
   formatValidationError?: (error: z.ZodError) => string;
+  execution?: ToolExecutionKind;
+  phases?: EssayPhase[];
 }
 
 export interface ToolContext {
@@ -102,6 +105,8 @@ export interface Session {
   agentConfig: AgentConfig;
   messages: Message[];
   todos: Todo[];
+  essay: EssaySpec;
+  steps: AgentStepRecord[];
   createdAt: number;
   updatedAt: number;
   status: 'active' | 'completed' | 'error';
@@ -163,6 +168,80 @@ export interface MessageMetadata {
   tps?: number;   // Tokens per second
   reasoningDetails?: ReasoningDetail[]; // For reasoning models - required for tool calling follow-ups
   reasoningContent?: string; // Raw reasoning required by DeepSeek-compatible tool-call history
+  essayPhase?: EssayPhase;
+  essayRevision?: number;
+  steps?: AgentStepRecord[];
+}
+
+// ==================== Essay Harness Types ====================
+
+export type EssayPhase = 'intake' | 'research' | 'outline' | 'draft' | 'verify' | 'format' | 'complete';
+export type CitationStyle = 'mla' | 'apa' | 'chicago' | 'none';
+
+export interface EssaySection {
+  id: string;
+  title: string;
+  purpose: string;
+  targetWords?: number;
+  content: string;
+  sourceIds: string[];
+  includeHeading?: boolean;
+  status: 'pending' | 'drafting' | 'complete';
+}
+
+export interface SourceRecord {
+  id: string;
+  title: string;
+  url: string;
+  snippet: string;
+  author?: string;
+  publishedDate?: string;
+  accessedAt: string;
+  claims: string[];
+}
+
+export interface EssayVerificationIssue {
+  code: string;
+  severity: 'error' | 'warning';
+  message: string;
+  sectionId?: string;
+}
+
+export interface EssayVerificationReport {
+  passed: boolean;
+  wordCount: number;
+  targetWords: number;
+  checkedAt: number;
+  documentRevision?: string;
+  issues: EssayVerificationIssue[];
+}
+
+export interface EssaySpec {
+  topic: string;
+  title: string;
+  thesis: string;
+  targetWords: number;
+  citationStyle: CitationStyle;
+  rubric: string[];
+  outline: EssaySection[];
+  sources: SourceRecord[];
+  phase: EssayPhase;
+  revision: number;
+  documentRevision: string;
+  draftStarted: boolean;
+  lastVerification?: EssayVerificationReport;
+  updatedAt: number;
+}
+
+export interface AgentStepRecord {
+  id: string;
+  index: number;
+  phase: EssayPhase;
+  status: 'running' | 'completed' | 'error';
+  toolNames: string[];
+  startedAt: number;
+  completedAt?: number;
+  error?: string;
 }
 
 // ==================== Document Types ====================

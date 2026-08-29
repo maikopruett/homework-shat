@@ -37,6 +37,7 @@ FALLBACK: If target_text not found, "before" falls back to start, "after" falls 
       .describe('Required when position is "before" or "after". The text to insert relative to.'),
   }),
   requiredContext: ['editor'],
+  execution: 'document-write',
 
   async execute({ content, position, target_text }, ctx) {
     const editor = ctx.editor;

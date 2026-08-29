@@ -27,6 +27,7 @@ import { todoWriteTool, todoReadTool } from './task';
 
 // Interaction tools
 import { askUserTool } from './interaction';
+import { essayTools } from './essay';
 
 // ==================== Register All Tools ====================
 
@@ -48,6 +49,9 @@ toolRegistry.register(todoReadTool);
 
 // Interaction
 toolRegistry.register(askUserTool);
+
+// Essay workflow
+toolRegistry.registerAll(essayTools);
 
 // ==================== Exports ====================
 
@@ -72,6 +76,7 @@ export {
   todoReadTool,
   // Interaction
   askUserTool,
+  essayTools,
 };
 
 // Re-export document utilities

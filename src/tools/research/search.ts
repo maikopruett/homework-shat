@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Tool, toolSuccess, toolError } from '../Tool';
-import { searchExa, formatSearchResultsForAI } from '../../api/exa';
+import { searchExa } from '../../api/exa';
+import { mergeSources } from '../../agent/essay';
 
 /**
  * Search the web for information.
@@ -15,7 +16,7 @@ WHEN TO USE: When writing essays that need citations, researching topics, fact-c
 PARAMETERS:
 - query: Search terms to find relevant information. Be specific for better results (e.g., "climate change effects on coral reefs 2024" rather than just "climate change").
 
-OUTPUT: Returns { results_count, results, current_date } where results contains:
+OUTPUT: Returns { results_count, sources, current_date } where each source contains a stable source_id plus:
 - title: Article title
 - url: Source URL for citation
 - snippet: Relevant excerpt from the content
@@ -35,6 +36,7 @@ ERRORS: Returns error if search service is unavailable.`,
   examples: [
     { query: 'effects of climate change on coral reefs 2025' },
   ],
+  execution: 'research',
 
   async execute({ query }, ctx) {
     ctx.emitStatus({
@@ -45,17 +47,35 @@ ERRORS: Returns error if search service is unavailable.`,
 
     try {
       const results = await searchExa(query);
-      const formattedResults = formatSearchResultsForAI(results);
       const currentDate = new Date().toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
       });
+      const ledger = mergeSources(ctx.session.essay, results.map((result) => ({
+        title: result.title,
+        url: result.url,
+        snippet: result.snippet.slice(0, 1200),
+        author: result.author,
+        publishedDate: result.publishedDate,
+        accessedAt: new Date().toISOString(),
+        claims: [],
+      })));
+      const resultUrls = new Set(results.map((result) => result.url));
 
       return toolSuccess(
         {
           results_count: results.length,
-          results: formattedResults,
+          sources: ledger
+            .filter((source) => resultUrls.has(source.url))
+            .map((source) => ({
+              source_id: source.id,
+              title: source.title,
+              url: source.url,
+              snippet: source.snippet,
+              author: source.author,
+              published_date: source.publishedDate,
+            })),
           current_date: currentDate,
         },
         { searchResults: results }

@@ -29,6 +29,7 @@ TIPS:
       ),
   }),
   requiredContext: ['editor'],
+  execution: 'document-write',
 
   async execute({ content }, ctx) {
     const editor = ctx.editor;

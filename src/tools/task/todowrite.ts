@@ -48,6 +48,7 @@ EXAMPLE:
     ).describe('Array of todo items to create or update. Use "todos" NOT "tasks".'),
   }),
   requiredContext: ['session'],
+  execution: 'state-write',
   examples: [
     {
       todos: [

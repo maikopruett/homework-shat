@@ -144,8 +144,6 @@ function buildDefaultPlanPrompt(modelPrompt: ModelPromptConfig): string {
 ## Personal Info
 ${PERSONAL_INFO_PLACEHOLDER}
 
-${modelPrompt.toolGuidance}
-
 ## Writing Style (Sound Human)
 ${WRITING_STYLE_RULES}
 
@@ -165,8 +163,6 @@ ${PLAN_MODE_INSTRUCTIONS}`;
  */
 function buildDefaultBuildPrompt(modelPrompt: ModelPromptConfig): string {
   return `${modelPrompt.identity}
-
-${modelPrompt.toolGuidance}
 
 ## Writing Style (Sound Human)
 ${WRITING_STYLE_RULES}
@@ -195,7 +191,7 @@ export function buildSystemPrompt(context: PromptContext): string {
   if (context.persona && context.persona.documentContent) {
     // Persona mode - use persona-specific prompt (same base for edit and plan)
     prompt = generatePersonaEditPrompt(context.persona);
-    prompt += `\n\n${modelPrompt.toolGuidance}`;
+    if (context.mode === 'edit') prompt += `\n\n${modelPrompt.toolGuidance}`;
 
     // Add plan mode instructions for persona in plan mode
     if (context.mode === 'plan') {
