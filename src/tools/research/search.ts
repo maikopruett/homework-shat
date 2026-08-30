@@ -1,7 +1,16 @@
 import { z } from 'zod';
 import { Tool, toolSuccess, toolError } from '../Tool';
 import { searchExa } from '../../api/exa';
-import { mergeSources } from '../../agent/essay';
+import { MAX_ESSAY_SEARCH_QUERIES, MAX_ESSAY_SOURCES, mergeSources, touchEssaySpec } from '../../agent/essay';
+
+interface SearchSourceOutput {
+  source_id: string;
+  title: string;
+  url: string;
+  snippet: string;
+  author?: string;
+  published_date?: string;
+}
 
 /**
  * Search the web for information.
@@ -36,9 +45,25 @@ ERRORS: Returns error if search service is unavailable.`,
   examples: [
     { query: 'effects of climate change on coral reefs 2025' },
   ],
-  execution: 'research',
+  execution: 'state-write',
 
   async execute({ query }, ctx) {
+    const spec = ctx.session.essay;
+    const remaining = Math.max(0, MAX_ESSAY_SOURCES - spec.searchResultsUsed);
+    if (remaining === 0 || spec.searchQueriesUsed >= MAX_ESSAY_SEARCH_QUERIES) {
+      return toolSuccess({
+        results_count: 0,
+        sources: [] as SearchSourceOutput[],
+        current_date: new Date().toLocaleDateString('en-US'),
+        total_sources: spec.sources.length,
+        budget_exhausted: true,
+        instruction: 'Research is complete. Do not search again; advance to outlining or continue drafting with the retained sources.',
+      });
+    }
+
+    spec.searchQueriesUsed += 1;
+    touchEssaySpec(spec);
+
     ctx.emitStatus({
       toolId: 'search_web',
       status: 'running',
@@ -46,13 +71,14 @@ ERRORS: Returns error if search service is unavailable.`,
     });
 
     try {
-      const results = await searchExa(query);
+      const results = (await searchExa(query)).slice(0, remaining);
+      spec.searchResultsUsed += results.length;
       const currentDate = new Date().toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
       });
-      const ledger = mergeSources(ctx.session.essay, results.map((result) => ({
+      const ledger = mergeSources(spec, results.map((result) => ({
         title: result.title,
         url: result.url,
         snippet: result.snippet.slice(0, 1200),
@@ -77,6 +103,12 @@ ERRORS: Returns error if search service is unavailable.`,
               published_date: source.publishedDate,
             })),
           current_date: currentDate,
+          total_sources: ledger.length,
+          budget_exhausted: spec.searchResultsUsed >= MAX_ESSAY_SOURCES
+            || spec.searchQueriesUsed >= MAX_ESSAY_SEARCH_QUERIES,
+          instruction: ledger.length >= MAX_ESSAY_SOURCES
+            ? 'Research budget reached. Advance the essay workflow using the retained sources.'
+            : 'Use these sources and continue the essay workflow.',
         },
         { searchResults: results }
       );

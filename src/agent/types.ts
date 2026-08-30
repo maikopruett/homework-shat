@@ -225,6 +225,8 @@ export interface EssaySpec {
   rubric: string[];
   outline: EssaySection[];
   sources: SourceRecord[];
+  searchQueriesUsed: number;
+  searchResultsUsed: number;
   phase: EssayPhase;
   revision: number;
   documentRevision: string;

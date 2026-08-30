@@ -26,7 +26,7 @@ import type {
 import type { TiptapEditorHandle } from '../components/TiptapEditor';
 import type { ChatMessage, ToolCall } from '../api/workersAi';
 import { validateFormatting, modelSupportsTools, type EssayTemplate } from '../prompts';
-import { compactChatMessages, documentRevision, ESSAY_PHASE_TOOLS, essayPhasePrompt, touchEssaySpec } from './essay';
+import { compactChatMessages, documentRevision, ESSAY_PHASE_TOOLS, essayPhasePrompt, MAX_ESSAY_SEARCH_QUERIES, MAX_ESSAY_SOURCES, touchEssaySpec } from './essay';
 
 // ==================== Types ====================
 
@@ -275,7 +275,12 @@ export async function runAgentLoop(options: LoopOptions): Promise<LoopResult> {
       const phaseTools = new Set(ESSAY_PHASE_TOOLS[session.essay.phase]);
       const availableTools = supportsTools
         ? toolRegistry.getForAgent(agentConfig).filter((tool) =>
-            !disabledTools.has(tool.id) && (agentConfig.mode === 'edit' || phaseTools.has(tool.id)))
+            !disabledTools.has(tool.id)
+            && !(tool.id === 'search_web' && (
+              session.essay.searchResultsUsed >= MAX_ESSAY_SOURCES
+              || session.essay.searchQueriesUsed >= MAX_ESSAY_SEARCH_QUERIES
+            ))
+            && (agentConfig.mode === 'edit' || phaseTools.has(tool.id)))
         : [];
       const chatCompletionTools = toolRegistry.toChatCompletionsFormat(availableTools);
       const requestMessages = compactChatMessages(messages, JSON.stringify({

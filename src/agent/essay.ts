@@ -10,6 +10,8 @@ import type {
 } from './types';
 
 const PHASE_ORDER: EssayPhase[] = ['intake', 'research', 'outline', 'draft', 'verify', 'format', 'complete'];
+export const MAX_ESSAY_SOURCES = 10;
+export const MAX_ESSAY_SEARCH_QUERIES = 3;
 
 export const ESSAY_PHASE_TOOLS: Record<EssayPhase, string[]> = {
   intake: ['inspect_essay', 'update_essay_spec', 'ask_user', 'read_document', 'set_essay_phase'],
@@ -31,6 +33,8 @@ export function createDefaultEssaySpec(): EssaySpec {
     rubric: [],
     outline: [],
     sources: [],
+    searchQueriesUsed: 0,
+    searchResultsUsed: 0,
     phase: 'intake',
     revision: 0,
     documentRevision: '',
@@ -50,8 +54,16 @@ export function normalizeEssaySpec(value?: Partial<EssaySpec> | null): EssaySpec
     citationStyle: normalizeCitationStyle(value.citationStyle),
     rubric: Array.isArray(value.rubric) ? value.rubric.filter((item): item is string => typeof item === 'string') : [],
     outline: Array.isArray(value.outline) ? value.outline.map(normalizeSection) : [],
-    sources: Array.isArray(value.sources) ? value.sources.map(normalizeSource) : [],
+    sources: Array.isArray(value.sources)
+      ? value.sources.slice(0, MAX_ESSAY_SOURCES).map(normalizeSource)
+      : [],
     revision: Number.isFinite(value.revision) ? Number(value.revision) : 0,
+    searchQueriesUsed: Number.isFinite(value.searchQueriesUsed)
+      ? Math.max(0, Number(value.searchQueriesUsed))
+      : 0,
+    searchResultsUsed: Number.isFinite(value.searchResultsUsed)
+      ? Math.max(0, Number(value.searchResultsUsed))
+      : Math.min(MAX_ESSAY_SOURCES, Array.isArray(value.sources) ? value.sources.length : 0),
     updatedAt: Number.isFinite(value.updatedAt) ? Number(value.updatedAt) : Date.now(),
   };
 }
@@ -99,13 +111,14 @@ export function documentRevision(editor: TiptapEditorHandle | null): string {
 }
 
 export function mergeSources(spec: EssaySpec, sources: Omit<SourceRecord, 'id'>[]): SourceRecord[] {
-  const merged = [...spec.sources];
+  const merged = [...spec.sources].slice(0, MAX_ESSAY_SOURCES);
   for (const candidate of sources) {
     const existing = merged.find((source) => source.url === candidate.url);
     if (existing) {
       Object.assign(existing, candidate, { id: existing.id });
       continue;
     }
+    if (merged.length >= MAX_ESSAY_SOURCES) continue;
     merged.push({ ...candidate, id: `source_${merged.length + 1}` });
   }
   spec.sources = merged;
@@ -149,6 +162,8 @@ export function serializeEssayState(spec: EssaySpec): string {
     rubric: spec.rubric,
     outline,
     sources,
+    searchQueriesUsed: spec.searchQueriesUsed,
+    searchResultsUsed: spec.searchResultsUsed,
     lastVerification: spec.lastVerification,
   });
 }
@@ -172,7 +187,8 @@ Rules:
 - Tool schemas are authoritative. Supply every required field exactly.
 - Do not repeat an identical failed tool call. Change the input or choose another tool.
 - Document revisions are optimistic locks. Inspect again after a revision conflict.
-- Search tools may run concurrently. Document and state mutations must remain ordered.
+- Retain at most ${MAX_ESSAY_SOURCES} sources. Once the source ledger is full, stop researching and advance the workflow.
+- Document, research-ledger, and state mutations must remain ordered.
 - Continue until the phase objective is satisfied; do not stop after merely describing the next action.
 - Never invent a source, source ID, quotation, author, date, or URL.
 </essay_harness>`;

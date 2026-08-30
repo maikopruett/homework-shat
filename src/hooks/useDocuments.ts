@@ -7,7 +7,7 @@ import { searchExa, type SearchResult } from '../api/exa';
 import { runAgentLoop } from '../agent/Loop';
 import { createAgentConfig, getPresetForMode } from '../agent/Agent';
 import type { ToolStatus, Todo, UserQuestionRequest, UserQuestionResponse, MessagePart, TextPart, MessageMetadata, Message, EssaySpec } from '../agent/types';
-import { createDefaultEssaySpec, documentRevision, mergeSources, normalizeEssaySpec } from '../agent/essay';
+import { createDefaultEssaySpec, documentRevision, MAX_ESSAY_SEARCH_QUERIES, MAX_ESSAY_SOURCES, mergeSources, normalizeEssaySpec } from '../agent/essay';
 // Plan detection removed - mode is now explicitly controlled via toggle
 
 // Model-specific prompts system
@@ -1030,6 +1030,8 @@ export function useDocuments() {
         accessedAt: new Date().toISOString(),
         claims: [],
       })));
+      essay.searchQueriesUsed = Math.min(MAX_ESSAY_SEARCH_QUERIES, essay.searchQueriesUsed + 1);
+      essay.searchResultsUsed = Math.min(MAX_ESSAY_SOURCES, essay.searchResultsUsed + preSearchResults.length);
     }
     essay.documentRevision = documentRevision(editorRef.current ?? null);
 
